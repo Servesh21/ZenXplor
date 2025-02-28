@@ -1,3 +1,9 @@
 .env
 .venv/
 ./backend/.venv/
+./backend/__pycache__/
+./backend/instance/
+./backend/migrations/
+./backend/flask_session/
+*.pyc
+*.pyo

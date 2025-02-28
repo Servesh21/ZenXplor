@@ -12,7 +12,8 @@ const UserProfileDropdown: React.FC<{
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const profileImage = localStorage.getItem("profileImage");
-  const userEmail = localStorage.getItem("user") || "example@gmail.com";
+  const userUsername = localStorage.getItem("username") || "Guest";
+  const userEmail = localStorage.getItem("userEmail") || "example@gmail.com";
 
   const toggleDarkMode = () => {
     const newMode = !darkMode;
@@ -58,7 +59,7 @@ const UserProfileDropdown: React.FC<{
                   <UserCircle size={32} className="text-gray-600 dark:text-gray-400" />
                 )}
                 <div>
-                  <p className="font-semibold text-gray-900 dark:text-white">{user}</p>
+                  <p className="font-semibold text-gray-900 dark:text-white">{userUsername}</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">{userEmail}</p>
                 </div>
               </div>

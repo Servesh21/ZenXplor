@@ -36,10 +36,12 @@ const Auth: React.FC = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-
+  
       const data = await response.json();
       if (response.ok && data.token) {
         localStorage.setItem("token", data.token);
+        localStorage.setItem("username", data.username); // Store username
+        localStorage.setItem("userEmail", data.email);   // Store email if needed
         navigate("/");
       } else {
         setError(data.error || "Invalid email or password.");
@@ -49,7 +51,6 @@ const Auth: React.FC = () => {
       setError("An error occurred. Please try again.");
     }
   };
-
   const handleSignup = async () => {
     if (password !== confirmPassword) {
       setError("Passwords do not match!");

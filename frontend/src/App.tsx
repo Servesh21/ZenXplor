@@ -6,7 +6,7 @@ import FileSearch from "./components/FileSearch";
 import SignUp from "./components/SignUp";
 import StorageOverview from "./components/StorageOverview";
 import SignInCallback from "./SignInCallback";
-import Profile from "./components/profile/profile";
+import Profile from "./components/profile/Profile";
 import Settings from "./components/profile/Settings";
 import Footer from "./components/Footer";
 import { ClerkProvider } from "@clerk/clerk-react";

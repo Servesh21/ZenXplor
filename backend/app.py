@@ -6,28 +6,24 @@ from flask_cors import CORS
 import os
 from extensions import db  # db is defined in extensions.py
 from flask_jwt_extended import JWTManager
-
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv()  # Load environment variables from .env file
+
 app = Flask(__name__)
+
+# Enable CORS for specific domains
 CORS(app, supports_credentials=True, origins=["http://localhost:5173"], 
      allow_headers=["Authorization", "Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
-# Database Configuration (update as needed)
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
+# Database Configuration (PostgreSQL)
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URI")  # Make sure DATABASE_URI is defined in .env
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # Set secret keys (used for sessions and JWT)
-app.secret_key = os.getenv("SECRET_KEY")
+app.secret_key = os.getenv("SECRET_KEY")  # Ensure SECRET_KEY is in your .env
 app.config["JWT_SECRET_KEY"] = os.getenv("SECRET_KEY")
-app.config["JWT_TOKEN_LOCATION"] = ["headers"] 
-
-# Session configuration (for cookie-based sessions)
-# app.config["SESSION_TYPE"] = "filesystem"
-# app.config["SESSION_COOKIE_NAME"] = "user_session"
-# app.config["SESSION_PERMANENT"] = False
-# app.config["SESSION_USE_SIGNER"] = True
+app.config["JWT_TOKEN_LOCATION"] = ["headers"]  # Default location for JWT is headers
 
 # Initialize SQLAlchemy with the app
 db.init_app(app)
@@ -41,9 +37,10 @@ jwt = JWTManager(app)
 # Register Blueprints
 app.register_blueprint(auth_bp, url_prefix="/auth")
 
-# Create tables (for development purposes, use migrations in production)
+# Run migrations (use migrations in production, not create_all)
 with app.app_context():
-    db.create_all()
+    # db.create_all()  # Avoid using create_all in production. Instead, use flask-migrate.
+    pass
 
 if __name__ == "__main__":
     app.run(debug=True)
