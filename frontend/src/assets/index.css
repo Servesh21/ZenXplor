@@ -1,0 +1,78 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+
+/* Ensure smooth transitions */
+* {
+
+  box-sizing: border-box;
+  font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.3s, color 0.3s;
+}
+/* index.css or globals.css */
+:root {
+  --background-color: white;
+  --text-color: black;
+}
+
+.dark {
+  --background-color: #111827; /* Dark background */
+  --text-color: white;
+}
+
+body {
+  background-color: var(--background-color);
+  color: var(--text-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+/* Custom styles */
+html, body, #root {
+    /* width: 100vw; */
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    /* overflow: hidden;  */
+    background-color: white;
+  }
+  
+  .fullscreen {
+    /* width: 100vw; */
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #f5f5f5; /* Light gray background */
+  }
+  
+
+.input-box {
+  border: 1px solid #d1d5db;
+  padding: 10px;
+  border-radius: 8px;
+  width: 100%;
+  transition: border-color 0.3s ease;
+}
+
+.input-box:focus {
+  border-color: #2563eb;
+  outline: none;
+}
+
+.card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary {
+  background-color: #2563eb;
+  color: white;
+  padding: 10px 15px;
+  border-radius: 8px;
+  transition: background-color 0.3s;
+}
+
+.btn-primary:hover {
+  background-color: #1e40af;
+}

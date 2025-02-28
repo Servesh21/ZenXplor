@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 app = Flask(__name__)
-CORS(app, resources={r"/auth/*": {"origins": "http://localhost:5173"}}, supports_credentials=True)
+CORS(app, supports_credentials=True, origins=["http://localhost:5173"], 
+     allow_headers=["Authorization", "Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
 # Database Configuration (update as needed)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
@@ -20,6 +21,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # Set secret keys (used for sessions and JWT)
 app.secret_key = os.getenv("SECRET_KEY")
 app.config["JWT_SECRET_KEY"] = os.getenv("SECRET_KEY")
+app.config["JWT_TOKEN_LOCATION"] = ["headers"] 
 
 # Session configuration (for cookie-based sessions)
 # app.config["SESSION_TYPE"] = "filesystem"
