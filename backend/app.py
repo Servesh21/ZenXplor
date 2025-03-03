@@ -23,7 +23,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # Set secret keys (used for sessions and JWT)
 app.secret_key = os.getenv("SECRET_KEY")  # Ensure SECRET_KEY is in your .env
 app.config["JWT_SECRET_KEY"] = os.getenv("SECRET_KEY")
-app.config["JWT_TOKEN_LOCATION"] = ["headers"]  # Default location for JWT is headers
+
 
 # Initialize SQLAlchemy with the app
 db.init_app(app)
@@ -31,6 +31,10 @@ db.init_app(app)
 # Initialize Flask-Migrate
 migrate = Migrate(app, db)
 
+app.config["JWT_TOKEN_LOCATION"] = ["cookies"]  # ✅ Read JWT from cookies
+app.config["JWT_ACCESS_COOKIE_NAME"] = "user"  # ✅ Must match the login cookie name
+app.config["JWT_COOKIE_SECURE"] = False  # ❌ Change to True in production
+app.config["JWT_COOKIE_CSRF_PROTECT"] = False  # ✅ Disable CSRF protection for testing
 # Initialize JWT Manager
 jwt = JWTManager(app)
 

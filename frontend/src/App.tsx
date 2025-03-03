@@ -13,14 +13,18 @@ import { ClerkProvider } from "@clerk/clerk-react";
 import "./assets/index.css";
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
-
 const App: React.FC = () => {
-  // Load dark mode state from localStorage
+  interface User {
+    username: string;
+    email: string;
+    profile_picture?: string;
+}
+  const [user, setUser] = useState<User | null>(null);
+
   const [darkMode, setDarkMode] = useState(() => {
     return JSON.parse(localStorage.getItem("darkMode") || "false");
   });
 
-  // Apply dark mode class to <html> on change
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add("dark");
@@ -34,15 +38,15 @@ const App: React.FC = () => {
     <ClerkProvider publishableKey={clerkPubKey}>
       <Router>
         <div className={`flex flex-col min-h-screen ${darkMode ? "bg-gray-800 text-white" : ""}`}>
-          <Navbar darkMode={darkMode} setDarkMode={setDarkMode} />
+          <Navbar darkMode={darkMode} setDarkMode={setDarkMode} user={user} setUser={setUser} />
           <main className="flex-grow">
             <Routes>
               <Route path="/" element={<Homepage />} />
               <Route path="/file-search" element={<FileSearch />} />
-              <Route path="/login" element={<SignUp />} />
+              <Route path="/login" element={<SignUp setUser={setUser} />} /> 
               <Route path="/storage-overview" element={<StorageOverview />} />
               <Route path="/oauth-callback" element={<SignInCallback />} />
-              <Route path="/profile" element={<Profile  darkMode={darkMode}  />} />
+              <Route path="/profile" element={<Profile darkMode={darkMode} />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
           </main>

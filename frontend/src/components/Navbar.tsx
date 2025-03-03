@@ -1,77 +1,67 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X } from "lucide-react";
+import Cookies from "js-cookie";
 import UserProfileDropdown from "./profile/UserProfileDropdown";
 
-const API_URL = "http://localhost:5000/auth";
+interface User {
+  username: string;
+  email: string;
+  profile_picture?: string;
+}
 
-const Navbar: React.FC<{ darkMode: boolean; setDarkMode: (mode: boolean) => void }> = ({ darkMode, setDarkMode }) => {
+interface NavbarProps {
+  darkMode: boolean;
+  setDarkMode: (mode: boolean) => void;
+  user: User | null;
+  setUser: (user: User | null) => void;
+}
+
+const Navbar: React.FC<NavbarProps> = ({ user, setUser, darkMode, setDarkMode }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
-  const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
-  const [user, setUser] = useState<string | null>(localStorage.getItem("user"));
 
   // Apply dark mode globally
   useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
+    document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
 
   useEffect(() => {
-    if (!token) {
-      setUser(null);
-      localStorage.removeItem("user");
-      localStorage.removeItem("profileImage");
-      return;
-    }
-
     const fetchProfile = async () => {
       try {
-        const response = await fetch(`${API_URL}/profile`, {
+        const response = await fetch("http://localhost:5000/auth/profile", {
           method: "GET",
           credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
         });
 
-        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-
-        const data = await response.json();
-        setUser(data.email || "User");
-        localStorage.setItem("user", data.email);
-
-        if (data.profileImage) {
-          localStorage.setItem("profileImage", data.profileImage);
-        } else {
-          localStorage.removeItem("profileImage");
+        if (!response.ok) {
+          console.error("Unauthorized:", response.status);
+          setUser(null);
+          return;
         }
+
+        const data: User = await response.json();
+       
+
+        setUser(data); // ✅ Set user from API response
+        Cookies.set("user", JSON.stringify(data)); // ✅ Store user in cookies as JSON string
       } catch (error) {
         console.error("Error fetching profile:", error);
-        setUser(null);
-        localStorage.removeItem("user");
-        localStorage.removeItem("profileImage");
       }
     };
 
     fetchProfile();
-  }, [token]);
+  }, [setUser]);
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+    Cookies.remove("user");
     setUser(null);
-    setToken(null);
-    setTimeout(() => navigate("/"), 100);
+    navigate("/");
   };
 
   return (
-    <nav className="relative flex items-center justify-between p-4 bg-white dark:bg-gray-900  text-black dark:text-white">
+    <nav className="relative flex items-center justify-between p-4 bg-white dark:bg-gray-900 text-black dark:text-white">
       {/* Left Section: Mobile Menu + Title */}
       <div className="flex items-center">
         <MobileMenuToggle isOpen={isOpen} setIsOpen={setIsOpen} />
@@ -111,7 +101,7 @@ const MobileMenuToggle: React.FC<{ isOpen: boolean; setIsOpen: (open: boolean) =
 
 const NavigationLinks: React.FC<{ location: any }> = ({ location }) => (
   <div className="md:flex md:space-x-6">
-    {["/", "/file-search", "/storage-overview"].map((path) => (
+    {["/", "/file-search"].map((path) => (
       <Link
         key={path}
         to={path}
@@ -120,7 +110,7 @@ const NavigationLinks: React.FC<{ location: any }> = ({ location }) => (
           after:absolute after:left-0 after:bottom-0 after:w-full after:h-[2px] after:bg-blue-600 dark:after:bg-blue-400
           after:scale-x-0 hover:after:scale-x-100 after:transition-transform after:duration-300 
           ${location.pathname === path ? "after:scale-x-100" : ""}`}>
-        {path === "/" ? "Home" : path === "/file-search" ? "File Search" : "Storage Access"}
+        {path === "/" ? "Home" : "File Search"}
       </Link>
     ))}
   </div>
@@ -134,14 +124,14 @@ const MobileNavigation: React.FC<{ isOpen: boolean; setIsOpen: (open: boolean) =
       <X size={24} className="text-black dark:text-white" />
     </button>
     <div className="flex flex-col items-start mt-16 space-y-4">
-      {["/", "/file-search", "/storage-overview"].map((path) => (
+      {["/", "/file-search"].map((path) => (
         <Link
           key={path}
           to={path}
           className="block w-full px-6 py-3 text-lg text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition"
           onClick={() => setIsOpen(false)}
         >
-          {path === "/" ? "Home" : path === "/file-search" ? "File Search" : "Storage Access"}
+          {path === "/" ? "Home" : "File Search"}
         </Link>
       ))}
     </div>
