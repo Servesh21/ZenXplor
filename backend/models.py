@@ -4,7 +4,6 @@ from datetime import datetime
 import re
 import random
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask import current_app
 
 # Default profile picture options
 DEFAULT_PROFILE_PICTURES = [
@@ -35,7 +34,7 @@ class User(db.Model):
             "id": self.id,
             "username": self.username,
             "email": self.email,
-            "profile_picture": f"/static/profile_pictures/{self.profile_picture}" if self.profile_picture and not self.profile_picture.startswith("http") else self.profile_picture,
+            "profile_picture": self.profile_picture,
             "created_at": self.created_at.strftime("%B %d, %Y"),
         }
 
@@ -63,3 +62,21 @@ class User(db.Model):
         else:
             self.profile_picture = new_picture_url  # Local file name
         db.session.commit()
+
+
+class IndexedFile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)  # User-specific access
+    filename = db.Column(db.String(255), nullable=False)
+    filepath = db.Column(db.String(512), nullable=False, unique=True)
+    is_folder = db.Column(db.Boolean, nullable=False, default=False)  # ✅ Add this
+    content_hash = db.Column(db.String(64), nullable=True)  # Optional for text search
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "filename": self.filename,
+            "filepath": self.filepath,
+            "is_folder": self.is_folder  # ✅ Include this in dict
+        }
