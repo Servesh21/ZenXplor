@@ -1,78 +1,86 @@
-File Search Application
-Overview
-The File Search Application is a powerful tool that allows users to index and search for files within their system. Built with Flask for the backend and React for the frontend, it integrates with Elasticsearch to provide fast and efficient search capabilities.
-Features
+# File Search Application
 
-Index User Directory (C:/Users)
-Search Files with Elasticsearch
-View File Paths
-Open Files in File Explorer
-JWT-based Authentication
+This is a universal file search application that indexes and searches for files across different locations, including local storage and cloud services.
 
-Tech Stack
-Backend:
+## Features
+- Index files in a user's `C:/Users` directory.
+- Search files efficiently using Elasticsearch.
+- Open file locations directly from the app.
+- User authentication via JWT.
 
-Flask
-Flask-JWT-Extended (for authentication)
-SQLAlchemy (for database operations)
-Elasticsearch (for search indexing)
-Docker (for containerization)
+## Prerequisites
+Before running the application, ensure you have the following installed:
+- Python 3.8+
+- Docker & Docker Compose
+- Node.js (only for frontend development)
+- Elasticsearch
+- PostgreSQL
 
-Frontend:
-
-React (Vite-based setup)
-Axios (for API calls)
-Tailwind CSS (for styling)
-
-Installation & Setup
-Prerequisites:
-
-Docker & Docker Compose
-Python 3.x
-Node.js (if making frontend changes)
-
-Clone the Repository
+## Setup Instructions
+### 1. Clone the Repository
+```sh
 git clone https://github.com/Servesh21/file_search1.git
 cd file_search1
+```
 
-Backend Setup (Flask API)
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows use: venv\Scripts\activate
-pip install -r requirements.txt
+### 2. Configure Environment Variables
+Create a `.env` file in the root directory and add the following environment variables:
+```
+# Flask Configuration
+FLASK_APP=app.py
+FLASK_ENV=development
+SECRET_KEY=your_secret_key_here
+
+# Database Configuration
+DATABASE_URL=postgresql://username:password@localhost:5432/file_search_db
+
+# Elasticsearch Configuration
+ELASTICSEARCH_URL=http://localhost:9200
+
+# JWT Authentication
+JWT_SECRET_KEY=your_jwt_secret_here
+```
+Modify the values as per your setup.
+
+### 3. Start the Backend with Docker
+To start the application along with Elasticsearch and PostgreSQL, run:
+```sh
+docker-compose up -d
+```
+This will launch the required services in the background.
+
+### 4. Run Migrations
+To initialize the database, run:
+```sh
+flask db upgrade
+```
+
+### 5. Start the Flask Server
+```sh
 flask run
+```
+By default, the server runs at `http://127.0.0.1:5000/`.
 
-Frontend Setup (React App)
-cd frontend
+### 6. Frontend (Optional)
+If you are working on the frontend, navigate to the `frontend` directory and run:
+```sh
 npm install
 npm run dev
+```
+This starts the frontend development server at `http://localhost:5173/`.
 
-Running with Docker
-To start both the backend and Elasticsearch using Docker:
-docker-compose up -d
+## Usage
+- Click **Reindex Files** to index files from the `C:/Users` directory.
+- Use the search bar to find files.
+- Click on a file to open its location.
 
-To stop the containers:
-docker-compose down
-
-API Endpoints
-Index Files
-POST /search/index-files
-Headers: Authorization: Bearer <token>
-
-Check Indexing Status
-GET /search/index-status
-Headers: Authorization: Bearer <token>
-
-Search Files
-GET /search/search-files?q=<query>
-Headers: Authorization: Bearer <token>
-
-Open File Location
-POST /search/open-file
-Headers: Authorization: Bearer <token>
-Body: { "filepath": "C:/path/to/file" }
-
-Contributing
-Feel free to contribute by submitting issues or pull requests. Make sure to follow best coding practices!
-License
-This project is open-source and available under the MIT License.
+## Troubleshooting
+- If Elasticsearch is not running, restart it using:
+  ```sh
+  docker-compose restart elasticsearch
+  ```
+- If the database connection fails, ensure PostgreSQL is running and check `DATABASE_URL` in `.env`.
+- For any other issues, check logs using:
+  ```sh
+  docker-compose logs -f
+  
