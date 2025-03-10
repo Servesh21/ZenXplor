@@ -1,144 +1,78 @@
-# File Search Application
+File Search Application
+Overview
+The File Search Application is a powerful tool that allows users to index and search for files within their system. Built with Flask for the backend and React for the frontend, it integrates with Elasticsearch to provide fast and efficient search capabilities.
+Features
 
-A web-based application that allows users to search for files efficiently.
+Index User Directory (C:/Users)
+Search Files with Elasticsearch
+View File Paths
+Open Files in File Explorer
+JWT-based Authentication
 
-## Features
+Tech Stack
+Backend:
 
-- **Backend**: Implemented using Python (Flask).
-- **Frontend**: Developed with React, TypeScript, and Tailwind CSS.
-- **Authentication**: Integrated with Clerk for OAuth (Google, Facebook, etc.) and JWT-based authentication.
-- **Database**: Uses PostgreSQL or SQLite.
-- **Search Functionality**: Indexes files from multiple sources (Google Drive, Gmail, OneDrive, Local Storage).
+Flask
+Flask-JWT-Extended (for authentication)
+SQLAlchemy (for database operations)
+Elasticsearch (for search indexing)
+Docker (for containerization)
 
-## Prerequisites
+Frontend:
 
-- **Python** (>= 3.8)
-- **Node.js & npm** (>= 16.x)
-- **PostgreSQL or SQLite** (if applicable)
-- **Git** (to clone the repository)
+React (Vite-based setup)
+Axios (for API calls)
+Tailwind CSS (for styling)
 
----
+Installation & Setup
+Prerequisites:
 
-## Installation
+Docker & Docker Compose
+Python 3.x
+Node.js (if making frontend changes)
 
-### 1️⃣ Clone the Repository
-
-```bash
+Clone the Repository
 git clone https://github.com/Servesh21/file_search1.git
 cd file_search1
-```
 
----
+Backend Setup (Flask API)
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows use: venv\Scripts\activate
+pip install -r requirements.txt
+flask run
 
-### 2️⃣ Backend Setup
+Frontend Setup (React App)
+cd frontend
+npm install
+npm run dev
 
-1. **Navigate to the backend directory**  
+Running with Docker
+To start both the backend and Elasticsearch using Docker:
+docker-compose up -d
 
-   ```bash
-   cd backend
-   ```
+To stop the containers:
+docker-compose down
 
-2. **Create a virtual environment**  
+API Endpoints
+Index Files
+POST /search/index-files
+Headers: Authorization: Bearer <token>
 
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On macOS/Linux
-   venv\Scripts\activate     # On Windows
-   ```
+Check Indexing Status
+GET /search/index-status
+Headers: Authorization: Bearer <token>
 
-3. **Install dependencies**  
+Search Files
+GET /search/search-files?q=<query>
+Headers: Authorization: Bearer <token>
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+Open File Location
+POST /search/open-file
+Headers: Authorization: Bearer <token>
+Body: { "filepath": "C:/path/to/file" }
 
-4. **Create and configure the `.env` file**  
-
-   ```bash
-   cp .env.example .env
-   ```
-
-   - Open `.env` and set values for:  
-     - `DATABASE_URL` (e.g., `postgresql://user:password@localhost/dbname`)
-     - `CLERK_SECRET_KEY` (for authentication)
-     - `GOOGLE_DRIVE_API_KEY` (if integrated)
-
-5. **Run database migrations**  
-
-   ```bash
-   flask db upgrade
-   ```
-
-6. **Start the backend server**  
-
-   ```bash
-   python app.py
-   ```
-
----
-
-### 3️⃣ Frontend Setup
-
-1. **Navigate to the frontend directory**  
-
-   ```bash
-   cd ../frontend
-   ```
-
-2. **Install dependencies**  
-
-   ```bash
-   npm install
-   ```
-
-3. **Create the `.env` file**  
-
-   ```bash
-   cp .env.example .env
-   ```
-
-   - Open `.env` and configure the API URL (`VITE_BACKEND_URL=http://localhost:5000`).  
-
-4. **Start the development server**  
-
-   ```bash
-   npm run dev
-   ```
-
----
-
-## Usage
-
-- Open `http://localhost:3000` in your browser.
-- Sign in using OAuth or JWT authentication.
-- Use the search bar to locate files from different sources.
-
----
-
-## Database Migrations
-
-If you make changes to the database models, run:
-
-```bash
-flask db migrate -m "Describe changes"
-flask db upgrade
-```
-
----
-
-## Troubleshooting
-
-- **Missing dependencies?** Run `pip install -r requirements.txt` or `npm install`.
-- **Database issues?** Check your `.env` file and verify `DATABASE_URL`.
-- **CORS errors?** Add frontend URL to Flask CORS config.
-
----
-
-## Contributing
-
-We welcome contributions! Fork the repo, make changes, and submit a pull request.
-
----
-
-
-
+Contributing
+Feel free to contribute by submitting issues or pull requests. Make sure to follow best coding practices!
+License
+This project is open-source and available under the MIT License.
