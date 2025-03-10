@@ -46,7 +46,7 @@ const App: React.FC = () => {
               <Route path="/login" element={<SignUp setUser={setUser} />} /> 
               <Route path="/storage-overview" element={<StorageOverview />} />
               <Route path="/oauth-callback" element={<SignInCallback />} />
-              <Route path="/profile" element={<Profile darkMode={darkMode} />} />
+              <Route path="/profile" element={<Profile darkMode={darkMode} user={user} setUser={setUser} />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
           </main>

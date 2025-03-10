@@ -76,3 +76,8 @@ html, body, #root {
 .btn-primary:hover {
   background-color: #1e40af;
 }
+
+ @keyframes fadeIn {
+   from { opacity: 0; }
+   to { opacity: 1; }
+ }
