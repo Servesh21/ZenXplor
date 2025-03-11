@@ -280,21 +280,29 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
             {/* Form Fields */}
             <div className="space-y-4">
               {!isLogin && (
-                <div className="form-group">
+                <div className="relative mb-5">
                   <label 
                     htmlFor="username" 
-                    className={`form-label ${activeField === 'username' ? 'active-label' : ''}`}
+                    className={`block text-sm font-medium mb-1.5 ${
+                      activeField === 'username' 
+                        ? 'text-blue-600 dark:text-blue-400' 
+                        : 'text-gray-700 dark:text-gray-300'
+                    }`}
                   >
                     Username
                   </label>
                   <div className="relative">
-                    <div className="form-icon">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                       <FaUser />
                     </div>
                     <input
                       id="username"
                       type="text"
-                      className="form-input"
+                      className={`w-full pl-10 pr-3 py-2.5 text-base rounded-lg border ${
+                        activeField === 'username'
+                          ? 'border-blue-500 ring-4 ring-blue-100 dark:ring-blue-900/30 bg-white dark:bg-gray-900'
+                          : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50'
+                      } focus:outline-none transition-all duration-200 text-gray-900 dark:text-gray-100`}
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       onFocus={() => setActiveField('username')}
@@ -304,21 +312,29 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
                 </div>
               )}
               
-              <div className="form-group">
+              <div className="relative mb-5">
                 <label 
                   htmlFor="email" 
-                  className={`form-label ${activeField === 'email' ? 'active-label' : ''}`}
+                  className={`block text-sm font-medium mb-1.5 ${
+                    activeField === 'email' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300'
+                  }`}
                 >
                   Email
                 </label>
                 <div className="relative">
-                  <div className="form-icon">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                     <FaEnvelope />
                   </div>
                   <input
                     id="email"
                     type="email"
-                    className="form-input"
+                    className={`w-full pl-10 pr-3 py-2.5 text-base rounded-lg border ${
+                      activeField === 'email'
+                        ? 'border-blue-500 ring-4 ring-blue-100 dark:ring-blue-900/30 bg-white dark:bg-gray-900'
+                        : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50'
+                    } focus:outline-none transition-all duration-200 text-gray-900 dark:text-gray-100`}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     onFocus={() => setActiveField('email')}
@@ -327,21 +343,29 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
                 </div>
               </div>
               
-              <div className="form-group">
+              <div className="relative mb-5">
                 <label 
                   htmlFor="password" 
-                  className={`form-label ${activeField === 'password' ? 'active-label' : ''}`}
+                  className={`block text-sm font-medium mb-1.5 ${
+                    activeField === 'password' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300'
+                  }`}
                 >
                   Password
                 </label>
                 <div className="relative">
-                  <div className="form-icon">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                     <FaLock />
                   </div>
                   <input
                     id="password"
                     type="password"
-                    className="form-input"
+                    className={`w-full pl-10 pr-3 py-2.5 text-base rounded-lg border ${
+                      activeField === 'password'
+                        ? 'border-blue-500 ring-4 ring-blue-100 dark:ring-blue-900/30 bg-white dark:bg-gray-900'
+                        : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50'
+                    } focus:outline-none transition-all duration-200 text-gray-900 dark:text-gray-100`}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     onFocus={() => setActiveField('password')}
@@ -351,21 +375,29 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
               </div>
               
               {!isLogin && (
-                <div className="form-group">
+                <div className="relative mb-5">
                   <label 
                     htmlFor="confirmPassword" 
-                    className={`form-label ${activeField === 'confirmPassword' ? 'active-label' : ''}`}
+                    className={`block text-sm font-medium mb-1.5 ${
+                      activeField === 'confirmPassword' 
+                        ? 'text-blue-600 dark:text-blue-400' 
+                        : 'text-gray-700 dark:text-gray-300'
+                    }`}
                   >
                     Confirm Password
                   </label>
                   <div className="relative">
-                    <div className="form-icon">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                       <FaLock />
                     </div>
                     <input
                       id="confirmPassword"
                       type="password"
-                      className="form-input"
+                      className={`w-full pl-10 pr-3 py-2.5 text-base rounded-lg border ${
+                        activeField === 'confirmPassword'
+                          ? 'border-blue-500 ring-4 ring-blue-100 dark:ring-blue-900/30 bg-white dark:bg-gray-900'
+                          : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50'
+                      } focus:outline-none transition-all duration-200 text-gray-900 dark:text-gray-100`}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       onFocus={() => setActiveField('confirmPassword')}
@@ -416,85 +448,6 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
           </p>
         </div>
       </div>
-      
-      <style jsx>{`
-        /* Modern form styling */
-        .form-group {
-          position: relative;
-          margin-bottom: 20px;
-        }
-        
-        .form-label {
-          display: block;
-          font-size: 14px;
-          font-weight: 500;
-          margin-bottom: 6px;
-          color: #4B5563;
-          transition: color 0.2s ease;
-        }
-        
-        .dark .form-label {
-          color: #9CA3AF;
-        }
-        
-        .active-label {
-          color: #2563EB !important;
-        }
-        
-        .dark .active-label {
-          color: #60A5FA !important;
-        }
-        
-        .form-input {
-          width: 100%;
-          padding: 10px 12px 10px 40px;
-          font-size: 16px;
-          border: 1px solid #E5E7EB;
-          border-radius: 8px;
-          background-color: #F9FAFB;
-          transition: all 0.2s ease;
-          color: #1F2937;
-        }
-        
-        .form-input:focus {
-          outline: none;
-          border-color: #2563EB;
-          box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
-          background-color: #FFFFFF;
-        }
-        
-        .dark .form-input {
-          background-color: rgba(30, 41, 59, 0.5);
-          border-color: #374151;
-          color: #F3F4F6;
-        }
-        
-        .dark .form-input:focus {
-          border-color: #3B82F6;
-          background-color: rgba(30, 41, 59, 0.8);
-          box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
-        }
-        
-        .form-icon {
-          position: absolute;
-          left: 12px;
-          top: 50%;
-          transform: translateY(-50%);
-          color: #9CA3AF;
-          font-size: 16px;
-        }
-        
-        /* Animation for alerts */
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(-10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        
-        @keyframes ripple {
-          0% { transform: scale(0); opacity: 1; }
-          100% { transform: scale(10); opacity: 0; }
-        }
-      `}</style>
     </div>
   );
 };

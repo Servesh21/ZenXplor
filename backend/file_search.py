@@ -8,7 +8,7 @@ from models import db, IndexedFile
 from elasticsearch import Elasticsearch, helpers
 from flask_cors import CORS
 from sqlalchemy.orm import scoped_session, sessionmaker
-
+from flask import send_file
 import platform , subprocess
 
 # Elasticsearch Setup
@@ -153,8 +153,6 @@ def open_file():
     try:
         if platform.system() == "Windows":
             subprocess.run(["explorer", "/select,", file_path], check=True)
-        elif platform.system() == "Darwin":
-            subprocess.run(["open", "-R", file_path], check=True)
         else:
             subprocess.run(["xdg-open", file_path], check=True)
 
@@ -171,3 +169,25 @@ def check_elasticsearch():
         logging.error("Elasticsearch server is not reachable")
         return False
     return True
+
+
+
+@search_bp.route("/download-file", methods=["GET"])
+@jwt_required()
+def download_file():
+    """Allow authenticated users to download a file."""
+    user_id = get_jwt_identity()
+    file_path = request.args.get("filepath")
+
+    if not file_path or not os.path.exists(file_path):
+        return jsonify({"error": "Invalid file path"}), 400
+
+    # Ensure the user has permission to download the file
+    file_record = IndexedFile.query.filter_by(filepath=file_path, user_id=user_id).first()
+    if not file_record:
+        return jsonify({"error": "Unauthorized access"}), 403
+
+    try:
+        return send_file(file_path, as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": f"Failed to download file: {str(e)}"}), 500
