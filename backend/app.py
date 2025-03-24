@@ -8,6 +8,7 @@ from extensions import db  # db is defined in extensions.py
 from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
 from file_search import search_bp  # Import your search blueprint
+from cloudstorage import cloud_storage_bp  # Import your cloud storage blueprint
 
 
 
@@ -42,7 +43,8 @@ jwt = JWTManager(app)
 
 # Register Blueprints
 app.register_blueprint(auth_bp, url_prefix="/auth")
-app.register_blueprint(search_bp, url_prefix="/search")  # Add this line
+app.register_blueprint(search_bp, url_prefix="/search")  
+app.register_blueprint(cloud_storage_bp)  
 
 # Ensure DB is set up correctly
 with app.app_context():

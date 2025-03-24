@@ -8,7 +8,7 @@ from models import db, User
 from flask_cors import CORS
 
 auth_bp = Blueprint("auth", __name__)
-CORS(auth_bp, supports_credentials=True, origins=["http://localhost:5173"])
+CORS(auth_bp, supports_credentials=True)
 
 # Predefined profile pictures
 PREDEFINED_PROFILE_PICTURES = [
@@ -36,8 +36,7 @@ def signup():
     if profile_picture not in PREDEFINED_PROFILE_PICTURES:
         return jsonify({"error": "Invalid profile picture selection"}), 400
 
-    hashed_password = generate_password_hash(password)
-    new_user = User(username=username, email=email, password_hash=hashed_password, profile_picture=profile_picture)
+    new_user = User(username=username, email=email, password=password, profile_picture=profile_picture)
 
     db.session.add(new_user)
     db.session.commit()
@@ -76,6 +75,8 @@ def logout():
     unset_jwt_cookies(response)
     return response, 200
 
+
+
 @auth_bp.route("/profile", methods=["GET"])
 @jwt_required()
 def profile():
@@ -87,7 +88,12 @@ def profile():
         if not user:
             return jsonify({"error": "User not found"}), 404
 
-        return jsonify(user.to_dict()), 200
+        return jsonify({
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "profile_picture": user.profile_picture
+        }), 200
     except Exception:
         return jsonify({"error": "Invalid or expired token"}), 401
 
@@ -125,3 +131,4 @@ def edit_profile():
     except Exception as e:
         print("Error:", e)  # Print the error to the Flask console
         return jsonify({"error": "An error occurred", "details": str(e)}), 500
+    
