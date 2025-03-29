@@ -25,7 +25,7 @@ def signup():
     username = data.get("username")
     email = data.get("email")
     password = data.get("password")
-    profile_picture = data.get("profile_picture", PREDEFINED_PROFILE_PICTURES[0])  # Default avatar
+    profile_picture = data.get("profile_picture", PREDEFINED_PROFILE_PICTURES[0])
 
     if not username or not email or not password:
         return jsonify({"error": "All fields are required"}), 400
@@ -36,12 +36,30 @@ def signup():
     if profile_picture not in PREDEFINED_PROFILE_PICTURES:
         return jsonify({"error": "Invalid profile picture selection"}), 400
 
-    new_user = User(username=username, email=email, password=password, profile_picture=profile_picture)
+    try:
+        new_user = User(username=username, email=email, password=password, profile_picture=profile_picture)
+        db.session.add(new_user)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to create user", "details": str(e)}), 500
 
-    db.session.add(new_user)
-    db.session.commit()
-
-    return jsonify({"message": "User created successfully"}), 201
+    # Automatically log in the user after successful signup:
+    access_token = create_access_token(identity=str(new_user.id))
+    response = make_response(jsonify({
+        "message": "User created successfully",
+        "user": new_user.to_dict()
+    }), 201)
+    response.set_cookie(
+        "access_token_cookie", 
+        access_token, 
+        httponly=True, 
+        samesite="Lax", 
+        secure=False,  # Change to True in production (HTTPS)
+        max_age=7 * 24 * 60 * 60  # 7 days in seconds
+    )
+    return response
+ 
 
 @auth_bp.route("/login", methods=["POST"])
 def login():
@@ -63,7 +81,7 @@ def login():
     }))
 
     response.set_cookie(
-        "access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False
+        "access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False,max_age=7 * 24 * 60 * 60 
     )
 
     return response, 200
@@ -94,7 +112,8 @@ def profile():
             "email": user.email,
             "profile_picture": user.profile_picture
         }), 200
-    except Exception:
+    except Exception as e:
+        print(f"Profile error: {str(e)}")
         return jsonify({"error": "Invalid or expired token"}), 401
 
 @auth_bp.route("/edit-profile", methods=["PUT"])

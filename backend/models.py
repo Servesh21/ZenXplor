@@ -109,7 +109,7 @@ class CloudStorageAccount(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Associate with user
     provider = db.Column(db.String(50), nullable=False)  # Example: "Google Drive"
     email = db.Column(db.String(100), nullable=False)
-    access_token = db.Column(db.String(1000), nullable=False)  # Short-lived access token
+    access_token = db.Column(db.String(20000), nullable=False)  # Short-lived access token
     refresh_token = db.Column(db.String(1000), nullable=True)  # Store refresh token
     permissions = db.Column(db.Text, nullable=True)
     last_synced = db.Column(db.DateTime, nullable=True)

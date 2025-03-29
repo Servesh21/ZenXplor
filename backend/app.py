@@ -9,6 +9,8 @@ from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
 from file_search import search_bp  # Import your search blueprint
 from cloudstorage import cloud_storage_bp  # Import your cloud storage blueprint
+from file_search import start_auto_sync_thread  # Import the auto-sync function
+
 
 
 
@@ -40,6 +42,10 @@ app.config["JWT_COOKIE_SECURE"] = False  # Set to True in production (HTTPS)
 app.config["JWT_COOKIE_CSRF_PROTECT"] = False
 
 jwt = JWTManager(app)
+
+if __name__ == "__main__":
+    start_auto_sync_thread()  # Start auto-sync for Google Drive
+    app.run(debug=True)
 
 # Register Blueprints
 app.register_blueprint(auth_bp, url_prefix="/auth")

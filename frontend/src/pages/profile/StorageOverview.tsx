@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react";
-import { gapi } from "gapi-script";
 import axios from "axios";
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
+const DROPBOX_CLIENT_ID = "ya0ygxxz90ljt6f";
 const BACKEND_URL = "http://localhost:5000";
-
 
 interface Account {
   id: number;
@@ -49,22 +47,31 @@ const CloudStorageAccounts = () => {
     fetchUserIdAndAccounts();
   }, []);
 
-  const handleAddAccount = () => {
-    const REDIRECT_URI = "http://localhost:5000/cloud-storage/callback"; // Backend callback URL
-    
-  
+  const handleAddGoogleDrive = () => {
+    const REDIRECT_URI = "http://localhost:5000/cloud-storage/callback";
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-    `client_id=${encodeURIComponent(CLIENT_ID)}` +
-    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-    `&response_type=code` +
-    `&scope=${encodeURIComponent(" https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile")}` +
-    `&access_type=offline` +
-    `&prompt=consent`;
+      `client_id=${encodeURIComponent(CLIENT_ID)}` +
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&response_type=code` +
+      `&scope=${encodeURIComponent("https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile")}` +
+      `&access_type=offline` +
+      `&prompt=consent`;
     
-  window.location.href = authUrl;
-  console.log("Redirecting to:", authUrl);  
+    window.location.href = authUrl;
+    console.log("Redirecting to:", authUrl);
   };
+
+  const handleAddDropbox = () => {
+    const DROPBOX_REDIRECT_URI = "http://localhost:5000/cloud-storage/dropbox/callback"; // Ensure this matches the registered redirect URI
   
+    const authUrl = `https://www.dropbox.com/oauth2/authorize?` +
+      `client_id=${encodeURIComponent(DROPBOX_CLIENT_ID)}` +
+      `&response_type=code` +
+      `&redirect_uri=${encodeURIComponent(DROPBOX_REDIRECT_URI)}`;
+  
+    window.location.href = authUrl;
+    console.log("Redirecting to:", authUrl);
+  };
 
   const handleSyncAccount = async (accountId: number) => {
     setSyncingAccount(accountId);
@@ -77,6 +84,22 @@ const CloudStorageAccounts = () => {
       );
     } catch (error) {
       console.error("Error syncing account:", error);
+    } finally {
+      setSyncingAccount(null);
+    }
+  };
+
+  const handleSyncDropbox = async (accountId: number) => {
+    setSyncingAccount(accountId);
+
+    console.log("Syncing Dropbox account:", accountId);
+    try {
+      await axios.post(`${BACKEND_URL}/search/sync-dropbox`, { account_id: accountId }, { withCredentials: true });
+      setConnectedAccounts((prev) =>
+        prev.map((account) => account.id === accountId ? { ...account, lastSynced: new Date().toISOString() } : account)
+      );
+    } catch (error) {
+      console.error("Error syncing Dropbox account:", error);
     } finally {
       setSyncingAccount(null);
     }
@@ -114,9 +137,15 @@ const CloudStorageAccounts = () => {
                     </div>
                     <div className="flex items-center gap-3">
                       <p className="text-sm text-gray-500 dark:text-gray-400">{account.lastSynced ? `Last synced: ${new Date(account.lastSynced).toLocaleString()}` : "Not yet synced"}</p>
-                      <button onClick={() => handleSyncAccount(account.id)} disabled={syncingAccount === account.id} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:bg-gray-500">
-                        {syncingAccount === account.id ? "Syncing..." : "Sync"}
-                      </button>
+                      {account.provider === "Dropbox" ? (
+                        <button onClick={() => handleSyncDropbox(account.id)} disabled={syncingAccount === account.id} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:bg-gray-500">
+                          {syncingAccount === account.id ? "Syncing..." : "Sync Dropbox"}
+                        </button>
+                      ) : (
+                        <button onClick={() => handleSyncAccount(account.id)} disabled={syncingAccount === account.id} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:bg-gray-500">
+                          {syncingAccount === account.id ? "Syncing..." : "Sync"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -132,7 +161,8 @@ const CloudStorageAccounts = () => {
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Add Storage Account</h2>
                 <button onClick={() => setShowAddModal(false)} className="text-gray-500 hover:text-gray-700 dark:text-gray-400">✖</button>
               </div>
-              <button onClick={handleAddAccount} className="w-full bg-blue-500 hover:bg-blue-700 text-white py-2 rounded-md">Connect Google Drive</button>
+              <button onClick={handleAddGoogleDrive} className="w-full mb-2 bg-blue-500 hover:bg-blue-700 text-white py-2 rounded-md">Connect Google Drive</button>
+              <button onClick={handleAddDropbox} className="w-full bg-gray-600 hover:bg-gray-800 text-white py-2 rounded-md">Connect Dropbox</button>
             </div>
           </div>
         )}

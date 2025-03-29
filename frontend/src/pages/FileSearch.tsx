@@ -6,7 +6,7 @@ interface FileItem {
   id: number;
   filename: string;
   filepath?: string;
-  storage_type: "local" | "google_drive";
+  storage_type: "local" | "google_drive" | "dropbox";
   cloud_file_id?: string; // Only for Google Drive files
 }
 
@@ -117,58 +117,73 @@ const FileSearch: React.FC = () => {
           </div>
         ) : files.length > 0 ? (
           <ul className="space-y-3">
-            {files.map((file) => (
-              <li 
-                key={file.id} 
-                className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all border border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
-              >
-                <div className="mb-2 sm:mb-0">
-                  <p className="font-semibold text-lg">{file.filename}</p>
-                  {file.filepath && (
-                    <p className="text-sm text-gray-600 dark:text-gray-400 break-all">📂 {file.filepath}</p>
-                  )}
-                  {file.storage_type === "google_drive" ? (
-                    <p className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2">
-                      <FaCloud className="text-blue-500" /> Google Drive
-                    </p>
-                  ) : (
-                    <p className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2">
-                      <FaHdd className="text-gray-500" /> Local Storage
-                    </p>
-                  )}
-                </div>
-                <div className="flex gap-4">
-                  {file.storage_type === "google_drive" ? (
-                    <a
-                      href={`https://drive.google.com/open?id=${file.cloud_file_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-500 hover:text-blue-700 bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-all"
-                      title="Open in Google Drive"
-                    >
-                      <FaCloud size={18} />
-                    </a>
-                  ) : (
-                    <>
-                      <button 
-                        onClick={() => handleDownload(file.filepath!)} 
-                        className="text-blue-500 hover:text-blue-700 bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-all"
-                        title="Download file"
-                      >
-                        <FaDownload size={18} />
-                      </button>
-                      <button 
-                        onClick={() => handleOpenFileLocation(file.filepath!)} 
-                        className="text-green-500 hover:text-green-700 bg-green-100 dark:bg-green-900/30 p-3 rounded-full hover:bg-green-200 dark:hover:bg-green-800/50 transition-all"
-                        title="Open file location"
-                      >
-                        <FaFolderOpen size={18} />
-                      </button>
-                    </>
-                  )}
-                </div>
-              </li>
-            ))}
+           {files.map((file) => (
+  <li
+    key={file.id}
+    className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all border border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
+  >
+    <div className="mb-2 sm:mb-0">
+      <p className="font-semibold text-lg">{file.filename}</p>
+      {file.filepath && (
+        <p className="text-sm text-gray-600 dark:text-gray-400 break-all">📂 {file.filepath}</p>
+      )}
+      {file.storage_type === "google_drive" ? (
+        <p className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2">
+          <FaCloud className="text-blue-500" /> Google Drive
+        </p>
+      ) : file.storage_type === "dropbox" ? (
+        <p className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2">
+          <FaCloud className="text-indigo-500" /> Dropbox
+        </p>
+      ) : (
+        <p className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2">
+          <FaHdd className="text-gray-500" /> Local Storage
+        </p>
+      )}
+    </div>
+    <div className="flex gap-4">
+      {file.storage_type === "google_drive" ? (
+        <a
+          href={`https://drive.google.com/open?id=${file.cloud_file_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-500 hover:text-blue-700 bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-all"
+          title="Open in Google Drive"
+        >
+          <FaCloud size={18} />
+        </a>
+      ) : file.storage_type === "dropbox" ? (
+        <a
+          href={`https://www.dropbox.com/home/${file.cloud_file_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-indigo-500 hover:text-indigo-700 bg-indigo-100 dark:bg-indigo-900/30 p-3 rounded-full hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition-all"
+          title="Open in Dropbox"
+        >
+          <FaCloud size={18} />
+        </a>
+      ) : (
+        <>
+          <button
+            onClick={() => handleDownload(file.filepath!)}
+            className="text-blue-500 hover:text-blue-700 bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-all"
+            title="Download file"
+          >
+            <FaDownload size={18} />
+          </button>
+          <button
+            onClick={() => handleOpenFileLocation(file.filepath!)}
+            className="text-green-500 hover:text-green-700 bg-green-100 dark:bg-green-900/30 p-3 rounded-full hover:bg-green-200 dark:hover:bg-green-800/50 transition-all"
+            title="Open file location"
+          >
+            <FaFolderOpen size={18} />
+          </button>
+        </>
+      )}
+    </div>
+  </li>
+))}
+
           </ul>
         ) : (
           <div className="py-12 text-center">
