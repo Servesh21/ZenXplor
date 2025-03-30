@@ -36,7 +36,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, setUser, darkMode, setDarkMode })
         });
   
         if (!response.ok) {
-          console.error("Unauthorized:", response.status);
+          
           setUser(null);
           return;
         }

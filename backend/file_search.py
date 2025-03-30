@@ -16,6 +16,14 @@ import platform , subprocess
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from datetime import datetime
+import dropbox
+from dropbox.exceptions import AuthError
+from sqlalchemy.dialects.postgresql import insert
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+import time
+from models import CloudStorageAccount
+
 # Elasticsearch Setup
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 es = Elasticsearch([ELASTICSEARCH_URL])
@@ -28,12 +36,141 @@ CORS(search_bp, supports_credentials=True, origins=["http://localhost:5173"])
 logging.basicConfig(level=logging.INFO)
 indexing_status = {}
 
-from models import CloudStorageAccount
-AUTO_SYNC_INTERVAL = 6
 
-import dropbox
-from dropbox.exceptions import AuthError
-from sqlalchemy.dialects.postgresql import insert
+AUTO_SYNC_INTERVAL_LOCAL = 30
+AUTO_SYNC_INTERVAL=30
+
+EXCLUDE_DIRS = {"AppData","node_modules", ".git", ".Trash", "System Volume Information",".venv",".gradle"}
+EXCLUDE_FILES = {".DS_Store", "thumbs.db"}
+
+indexing_status = {}
+
+def get_available_drives():
+    """Return all available drives."""
+    if os.name == 'nt':  # Windows
+        import psutil
+        return [dp.device for dp in psutil.disk_partitions()]
+    else:  # Linux/macOS
+        return ["/"]  # Root directory
+    
+def is_valid_file(file_path):
+    """Check if the file should be indexed."""
+    file_name = os.path.basename(file_path).lower()
+    return (
+        file_name not in EXCLUDE_FILES
+    )
+
+def is_valid_dir(dir_path):
+    """Check if the directory should be indexed."""
+    dir_name = os.path.basename(dir_path)
+    return dir_name not in EXCLUDE_DIRS
+
+def get_user_dirs():
+    """Get valid user directories inside C:/Users."""
+    users_path = "C:/Users"
+    if os.path.exists(users_path):
+        return [
+            os.path.join(users_path, user) 
+            for user in os.listdir(users_path) 
+            if os.path.isdir(os.path.join(users_path, user)) and is_valid_dir(os.path.join(users_path, user))
+        ]
+    return []
+
+from concurrent.futures import ThreadPoolExecutor
+
+def auto_index_local_storage():
+    """Periodically check for new files and index only them, avoiding reindexing existing ones."""
+    while True:
+        with current_app.app_context():
+            users = db.session.query(IndexedFile.user_id).distinct().all()
+            user_dirs = get_user_dirs()
+
+            with ThreadPoolExecutor(max_workers=5) as executor:  # Limit threads to avoid overload
+                for (user_id,) in users:
+                    for user_dir in user_dirs:
+                        if is_valid_dir(user_dir):
+                            executor.submit(index_new_files_only, user_id, user_dir)
+
+        from concurrent.futures import ThreadPoolExecutor
+
+def auto_index_local_storage():
+    """Periodically check for new files and index only them, avoiding reindexing existing ones."""
+    while True:
+        with current_app.app_context():
+            users = db.session.query(IndexedFile.user_id).distinct().all()
+            user_dirs = get_user_dirs()
+
+            with ThreadPoolExecutor(max_workers=5) as executor:  # Limit threads to avoid overload
+                for (user_id,) in users:
+                    for user_dir in user_dirs:
+                        if is_valid_dir(user_dir):
+                            executor.submit(index_new_files_only, user_id, user_dir)
+
+        time.sleep(AUTO_SYNC_INTERVAL)
+
+
+
+def index_new_files_only(user_id, base_directory):
+    """Index only new files that are not already present in the database."""
+    from app import app  
+    with app.app_context():
+        session = scoped_session(sessionmaker(bind=db.engine))  # New DB session
+        
+        indexed_items = []
+        new_entries = []
+
+        try:
+            for root, dirs, files in os.walk(base_directory):
+                dirs[:] = [d for d in dirs if is_valid_dir(os.path.join(root, d))]  # Filter out unnecessary dirs
+
+                for file in files:
+                    file_path = sanitize_filepath(os.path.join(root, file))
+
+                    if not is_valid_file(file_path):  # Exclude unnecessary files
+                        continue
+
+                    # ✅ Check if the file is already indexed
+                    if session.query(IndexedFile).filter_by(filepath=file_path, user_id=user_id).first():
+                        continue  # Skip already indexed files
+
+                    print(f"New file detected: {file_path}")  # Debugging log
+
+                    # Add new file entry
+                    new_entries.append(IndexedFile(
+                        user_id=user_id,
+                        filename=file,
+                        filepath=file_path,
+                        is_folder=False
+                    ))
+                    indexed_items.append({
+                        "id": f"{user_id}_{file_path}",
+                        "user_id": user_id,
+                        "filename": file,
+                        "filepath": file_path,
+                        "is_folder": False
+                    })
+
+            # Commit only new entries to DB
+            if new_entries:
+                session.bulk_save_objects(new_entries)
+                session.commit()
+                print(f"✅ Indexed {len(new_entries)} new files")  # Debugging log
+
+            # Index new files in Elasticsearch
+            if indexed_items:
+                helpers.bulk(es, [
+                    {"_index": "file_index", "_id": item["id"], "_source": item}
+                    for item in indexed_items
+                ])
+                print(f"✅ Added {len(indexed_items)} new items to Elasticsearch")  # Debugging log
+
+        except Exception as e:
+            logging.error(f"Error during indexing new files: {str(e)}")
+
+        finally:
+            session.remove()
+
+
 
 def get_dropbox_access_token(account_id):
     """Fetch the access token for a specific Dropbox account."""
@@ -117,6 +254,37 @@ def sync_dropbox(account_id, user_id):
             session.remove()
 
 
+def auto_sync_dropbox():
+    """Automatically sync Dropbox accounts every 30 seconds."""
+    while True:
+        with current_app.app_context():
+            accounts = CloudStorageAccount.query.filter_by(provider="dropbox").all()
+            for account in accounts:
+                sync_dropbox(account.id, account.user_id)
+        time.sleep(AUTO_SYNC_INTERVAL)
+
+
+
+auto_sync_started = False  # Global flag
+
+def start_auto_sync_threads():
+    """Starts watchers for local storage and cloud sync, but only once."""
+    global auto_sync_started
+    if auto_sync_started:
+        return  # Prevent multiple invocations
+
+    app = current_app._get_current_object()
+    threading.Thread(target=run_with_app_context, args=(app, auto_index_local_storage)).start()
+    threading.Thread(target=run_with_app_context, args=(app, auto_sync_google_drive)).start()
+    threading.Thread(target=run_with_app_context, args=(app, auto_sync_dropbox)).start()
+    
+    auto_sync_started = True  # Mark as started
+
+
+def run_with_app_context(app, func, *args):
+    """Runs a function inside the Flask app context in a separate thread."""
+    with app.app_context():
+        func(*args)
 
 def get_access_token(account_id):
     """Fetch the access token for a specific Google Drive account."""
@@ -128,14 +296,15 @@ def get_available_drives():
     user_home = os.path.expanduser("~")  # Gets C:/Users/<username>
     return [user_home] if os.path.exists(user_home) else []
 
-def sanitize_filepath(filepath):
-    return filepath.encode("utf-8", "ignore").decode("utf-8")  # Removes invalid characters
+def sanitize_filepath(path):
+    """Sanitize file paths to ensure consistency."""
+    return os.path.abspath(path)
 
 def index_files_worker(user_id, base_directory):
     """Index all folders and files recursively in a given drive/directory."""
-    from app import app  
+    from app import app 
     with app.app_context():
-        session = scoped_session(sessionmaker(bind=db.engine))  # Create a new session
+        session = scoped_session(sessionmaker(bind=db.engine))  # New DB session
 
         indexing_status[user_id] = "in_progress"
         indexed_items = []
@@ -143,6 +312,8 @@ def index_files_worker(user_id, base_directory):
 
         try:
             for root, dirs, files in os.walk(base_directory):
+                # Filter out excluded directories
+                dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith(".")]
                 print(f"Scanning: {root}")  # Debugging log
                 
                 # Index Directories
@@ -156,6 +327,9 @@ def index_files_worker(user_id, base_directory):
                 # Index Files
                 for file in files:
                     file_path = sanitize_filepath(os.path.join(root, file))
+                    if file in EXCLUDE_FILES or file.startswith("."):
+                        continue  # Skip hidden/system files
+
                     print(f"Indexing file: {file_path}")  # Debugging log
                     
                     if session.query(IndexedFile).filter_by(filepath=file_path, user_id=user_id).first():
@@ -253,13 +427,12 @@ def sync_google_drive(account_id, user_id):
             session.remove()
 
 def auto_sync_google_drive():
-    """Automatically sync all Google Drive accounts periodically."""
+    """Automatically sync Google Drive accounts every 30 seconds."""
     while True:
         with current_app.app_context():
             accounts = CloudStorageAccount.query.filter_by(provider="google_drive").all()
             for account in accounts:
                 sync_google_drive(account.id, account.user_id)
-
         time.sleep(AUTO_SYNC_INTERVAL)
 
 
@@ -271,10 +444,11 @@ def start_auto_sync_thread():
 @jwt_required()
 def index_files():
     """Start indexing all drives and files recursively."""
+    user_id = get_jwt_identity()
+    
     if not check_elasticsearch():
         return jsonify({"error": "Elasticsearch is not available"}), 500
 
-    user_id = get_jwt_identity()
     drives = get_available_drives()
     indexing_status[user_id] = "starting"
 
@@ -282,6 +456,9 @@ def index_files():
         threading.Thread(target=index_files_worker, args=(user_id, drive)).start()
 
     return jsonify({"message": f"Indexing started for drives: {drives}"}), 202
+
+
+
 @search_bp.route("/index-status", methods=["GET"])
 @jwt_required()
 def get_index_status():
