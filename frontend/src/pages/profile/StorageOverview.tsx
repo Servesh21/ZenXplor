@@ -14,6 +14,7 @@ interface Account {
 }
 
 const CloudStorageAccounts = () => {
+  
   const [showAddModal, setShowAddModal] = useState(false);
   const [connectedAccounts, setConnectedAccounts] = useState<Account[]>([]);
   const [syncingAccount, setSyncingAccount] = useState<number | null>(null);
@@ -32,7 +33,7 @@ const CloudStorageAccounts = () => {
         }
 
         setUserId(id);
-
+        console.log("User ID set:", userId);
         const accountsResponse = await axios.get(`${BACKEND_URL}/cloud-accounts/${id}`, {
           withCredentials: true,
         });
