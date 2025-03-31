@@ -45,6 +45,37 @@ EXCLUDE_FILES = {".DS_Store", "thumbs.db"}
 
 indexing_status = {}
 
+
+auto_sync_started = False  # Global flag
+
+def start_auto_sync_threads(app):
+    """Start background threads for auto-syncing local storage, Google Drive, and Dropbox."""
+    global executor
+
+    if executor:
+        print("🔄 Stopping previous executor...")
+        executor.shutdown(wait=False)  # ✅ Properly stop previous threads before restarting
+
+    executor = ThreadPoolExecutor(max_workers=5)  # ✅ Restart the executor
+    print("🚀 Auto-sync threads started.")
+
+    # ✅ Start local storage indexing thread
+    local_indexing_thread = threading.Thread(target=auto_index_local_storage, args=(app,), daemon=True)
+    local_indexing_thread.start()
+
+    # ✅ Start Google Drive indexing thread
+    gdrive_indexing_thread = threading.Thread(target=auto_index_google_drive, args=(app,), daemon=True)
+    gdrive_indexing_thread.start()
+
+    # ✅ Start Dropbox indexing thread
+    dropbox_indexing_thread = threading.Thread(target=auto_index_dropbox, args=(app,), daemon=True)
+    dropbox_indexing_thread.start()
+
+    print("📂 Local storage, ☁️ Google Drive, and 📦 Dropbox auto-sync started.")
+
+
+
+
 def get_available_drives():
     """Return all available drives."""
     if os.name == 'nt':  # Windows
@@ -110,9 +141,65 @@ def auto_index_local_storage(app):
                     break  # ✅ Exit loop if Flask is shutting down
                 print(f"❌ Error in auto-indexing: {str(e)}")
 
-            time.sleep(30)  # ✅ Prevent excessive CPU usage
+            time.sleep(3600)  # ✅ Prevent excessive CPU usage
 
         print("🛑 Auto-indexing stopped.")
+
+def auto_index_google_drive(app):
+    """Periodically index new files from all users' Google Drive accounts."""
+    
+    while True:
+        with app.app_context():  # ✅ Ensures app context for database access
+            print("🚀 Google Drive Auto-Indexing Started")  # Debug log
+
+            users = db.session.query(IndexedFile.user_id).distinct().all()
+            print(f"🔄 Syncing Google Drive for {len(users)} users...")  
+
+            for (user_id,) in users:
+                try:
+                    # ✅ Fetch all linked Google Drive accounts for this user
+                    account_ids = db.session.query(CloudStorageAccount.id).filter_by(
+                        user_id=user_id, provider="Google Drive"
+                    ).all()
+                    
+                    for (account_id,) in account_ids:
+                        print(f"🔄 Syncing Google Drive for User {user_id}, Account {account_id}")
+                        sync_google_drive(account_id, user_id)  # ✅ Call your function
+
+                except Exception as e:
+                    logging.error(f"❌ Google Drive indexing error for User {user_id}: {str(e)}")
+
+            db.session.remove()  # ✅ Prevent memory leaks
+        time.sleep(3600)  # ✅ Run every 5 minutes
+
+
+def auto_index_dropbox(app):
+    """Periodically index new files from all users' Dropbox accounts."""
+    
+    while True:
+        with app.app_context():  # ✅ Ensure Flask app context
+            print("🚀 Dropbox Auto-Indexing Started")  # Debug log
+            
+            users = db.session.query(IndexedFile.user_id).distinct().all()
+            print(f"🔄 Syncing Dropbox for {len(users)} users...")  
+
+            for (user_id,) in users:
+                try:
+                    # ✅ Fetch all linked Dropbox accounts for this user
+                    account_ids = db.session.query(CloudStorageAccount.id).filter_by(
+                        user_id=user_id, provider="Dropbox"
+                    ).all()
+                    
+                    for (account_id,) in account_ids:
+                        print(f"🔄 Syncing Dropbox for User {user_id}, Account {account_id}")
+                        sync_dropbox(account_id, user_id)  # ✅ Call your function
+
+                except Exception as e:
+                    logging.error(f"❌ Dropbox indexing error for User {user_id}: {str(e)}")
+
+            db.session.remove()  # ✅ Prevent memory leaks
+        time.sleep(3600)  # ✅ Run every 5 minutes
+
 
 
 
@@ -269,33 +356,6 @@ def sync_dropbox(account_id, user_id):
         finally:
             session.remove()
 
-
-def auto_sync_dropbox():
-    """Automatically sync Dropbox accounts every 30 seconds."""
-    while True:
-        with current_app.app_context():
-            accounts = CloudStorageAccount.query.filter_by(provider="dropbox").all()
-            for account in accounts:
-                sync_dropbox(account.id, account.user_id)
-        time.sleep(AUTO_SYNC_INTERVAL)
-
-
-
-auto_sync_started = False  # Global flag
-
-def start_auto_sync_threads(app):
-    """Start background threads for auto-syncing, ensuring Flask app context."""
-    global executor
-
-    if executor:
-        print("🔄 Stopping previous executor...")
-        executor.shutdown(wait=False)  # ✅ Properly stop previous threads before restarting
-
-    executor = ThreadPoolExecutor(max_workers=5)  # ✅ Restart the executor
-    print("🚀 Auto-sync threads started.")
-
-    indexing_thread = threading.Thread(target=auto_index_local_storage, args=(app,), daemon=True)  # ✅ Pass `app`
-    indexing_thread.start()
 
 
 def run_with_app_context(app, func, *args):
@@ -457,19 +517,9 @@ def sync_google_drive(account_id, user_id):
         finally:
             session.remove()
 
-def auto_sync_google_drive():
-    """Automatically sync Google Drive accounts every 30 seconds."""
-    while True:
-        with current_app.app_context():
-            accounts = CloudStorageAccount.query.filter_by(provider="google_drive").all()
-            for account in accounts:
-                sync_google_drive(account.id, account.user_id)
-        time.sleep(AUTO_SYNC_INTERVAL)
 
 
-def start_auto_sync_thread():
-    """Start auto-sync in a background thread."""
-    threading.Thread(target=auto_sync_google_drive, daemon=True).start()
+
 
 @search_bp.route("/index-files", methods=["POST"])
 @jwt_required()
