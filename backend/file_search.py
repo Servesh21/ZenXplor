@@ -272,8 +272,7 @@ def start_auto_sync_threads():
     global auto_sync_started
     if auto_sync_started:
         return  # Prevent multiple invocations
-
-    app = current_app._get_current_object()
+    from app import app 
     threading.Thread(target=run_with_app_context, args=(app, auto_index_local_storage)).start()
     threading.Thread(target=run_with_app_context, args=(app, auto_sync_google_drive)).start()
     threading.Thread(target=run_with_app_context, args=(app, auto_sync_dropbox)).start()
@@ -301,7 +300,7 @@ def sanitize_filepath(path):
     return os.path.abspath(path)
 
 def index_files_worker(user_id, base_directory):
-    """Index all folders and files recursively in a given drive/directory."""
+    """Index all folders and files recursively in a given drive/directory with prefix search support."""
     from app import app 
     with app.app_context():
         session = scoped_session(sessionmaker(bind=db.engine))  # New DB session
@@ -322,7 +321,14 @@ def index_files_worker(user_id, base_directory):
                     if session.query(IndexedFile).filter_by(filepath=folder_path, user_id=user_id).first():
                         continue
                     new_entries.append(IndexedFile(user_id=user_id, filename=folder, filepath=folder_path, is_folder=True))
-                    indexed_items.append({"id": f"{user_id}_{folder_path}", "user_id": user_id, "filename": folder, "filepath": folder_path, "is_folder": True})
+                    indexed_items.append({
+                        "id": f"{user_id}_{folder_path}",
+                        "user_id": user_id,
+                        "filename": folder,
+                        "filename_ngram": folder.lower(),  # 👈 Add ngram field for prefix search
+                        "filepath": folder_path,
+                        "is_folder": True
+                    })
 
                 # Index Files
                 for file in files:
@@ -335,7 +341,14 @@ def index_files_worker(user_id, base_directory):
                     if session.query(IndexedFile).filter_by(filepath=file_path, user_id=user_id).first():
                         continue
                     new_entries.append(IndexedFile(user_id=user_id, filename=file, filepath=file_path, is_folder=False))
-                    indexed_items.append({"id": f"{user_id}_{file_path}", "user_id": user_id, "filename": file, "filepath": file_path, "is_folder": False})
+                    indexed_items.append({
+                        "id": f"{user_id}_{file_path}",
+                        "user_id": user_id,
+                        "filename": file,
+                        "filename_ngram": file.lower(),  # 👈 Add ngram field for prefix search
+                        "filepath": file_path,
+                        "is_folder": False
+                    })
 
             # Commit new entries to the database
             if new_entries:
@@ -471,58 +484,71 @@ def get_index_status():
 @search_bp.route("/search-files", methods=["GET"])
 @jwt_required()
 def search_files():
-    """Search files by name for both local storage and cloud storage."""
+    """Search files with fuzzy matching, prefix-based search, and pagination."""
+    
     if not check_elasticsearch():
         return jsonify({"error": "Search service unavailable"}), 500
 
     user_id = get_jwt_identity()
     query = request.args.get("q", "").strip().lower()
+    limit = request.args.get("limit", 10, type=int)  # Default: 10 results per page
+    offset = request.args.get("offset", 0, type=int)  # Default: Start from 0
 
     if not query:
         return jsonify({"error": "Search query is required"}), 400
 
     results = []
 
-    # 1️⃣ Search in Elasticsearch (Local Storage)
+    # 1️⃣ **Prefix + Fuzzy Search in Elasticsearch (Local Storage)**
     try:
         es_results = es.search(index="file_index", body={
             "query": {
                 "bool": {
-                    "must": [
-                        {"match": {"filename": query}},
-                        {"match": {"user_id": user_id}}
+                    "should": [
+                        { "prefix": { "filename": query } },  # Prefix search (autocomplete)
+                        { "match": { "filename": { "query": query, "fuzziness": "AUTO" } } }  # Fuzzy search (typos)
+                    ],
+                    "filter": [
+                        { "term": { "user_id": user_id } }  # Only return files for the user
                     ]
                 }
-            }
+            },
+            "from": offset,
+            "size": limit  # Pagination in Elasticsearch
         })
         results.extend([hit["_source"] for hit in es_results["hits"]["hits"]])
     except Exception as e:
         logging.error(f"Elasticsearch search error: {str(e)}")
 
-    # 2️⃣ Search in Indexed DB (Google Drive + Dropbox)
+    # 2️⃣ **Prefix + Fuzzy Search in Indexed DB (Google Drive + Dropbox)**
     with current_app.app_context():
         session = scoped_session(sessionmaker(bind=db.engine))
-    
-    # Search Google Drive files
+
         cloud_files = session.query(IndexedFile).filter(
             IndexedFile.user_id == user_id,
-            IndexedFile.filename.ilike(f"%{query}%"),
-            IndexedFile.storage_type.in_(["google_drive", "dropbox"])  # Include Dropbox
-        ).all()
-    
+            IndexedFile.filename.ilike(f"%{query}%"),  # Fuzzy match (SQL LIKE)
+            IndexedFile.storage_type.in_(["google_drive", "dropbox"])
+        ).offset(offset).limit(limit).all()  # Pagination for cloud files
+
         session.remove()
 
         results.extend([
             {
                 "filename": file.filename,
                 "cloud_file_id": file.cloud_file_id,
-                "storage_type": file.storage_type,  # Can be Google Drive or Dropbox
+                "storage_type": file.storage_type,
                 "filepath": file.filepath
             } for file in cloud_files
         ])
 
+    # Return paginated results
+    return jsonify({
+        "results": results,
+        "offset": offset,
+        "limit": limit,
+        "has_more": len(results) == limit  # Check if more results exist
+    }), 200
 
-    return jsonify(results), 200
 
 def search_google_drive_files(access_token, query):
     """Search Google Drive for files matching query."""

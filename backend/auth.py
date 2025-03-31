@@ -84,8 +84,8 @@ def login():
     response.set_cookie(
         "access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False,max_age=7 * 24 * 60 * 60 
     )
-    start_auto_sync_threads()
-
+    
+    
     return response, 200
 
 @auth_bp.route("/logout", methods=["POST"])
