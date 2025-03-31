@@ -23,6 +23,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import time
 from models import CloudStorageAccount
+import psutil
 
 # Elasticsearch Setup
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
@@ -79,7 +80,7 @@ def start_auto_sync_threads(app):
 def get_available_drives():
     """Return all available drives."""
     if os.name == 'nt':  # Windows
-        import psutil
+        
         return [dp.device for dp in psutil.disk_partitions()]
     else:  # Linux/macOS
         return ["/"]  # Root directory
@@ -141,7 +142,7 @@ def auto_index_local_storage(app):
                     break  # ✅ Exit loop if Flask is shutting down
                 print(f"❌ Error in auto-indexing: {str(e)}")
 
-            time.sleep(3600)  # ✅ Prevent excessive CPU usage
+            time.sleep(3)  # ✅ Prevent excessive CPU usage
 
         print("🛑 Auto-indexing stopped.")
 
@@ -298,6 +299,14 @@ def fetch_dropbox_files(dbx, path=""):
     except Exception as e:
         logging.error(f"Dropbox API Error: {str(e)}")
         return []
+    
+def get_dropbox_file_type(file_name):
+    """Return the file extension as the file type."""
+    if file_name.endswith('/'):
+        return 'folder'  # This handles folders, which end with '/'
+    else:
+        return file_name.split('.')[-1]  # Extract the file extension (e.g., 'pdf', 'jpg', etc.)
+
 
 def sync_dropbox(account_id, user_id):
     """Sync Dropbox files for a specific user."""
@@ -325,20 +334,25 @@ def sync_dropbox(account_id, user_id):
                 file_path = file.path_display
                 last_modified = file.server_modified
 
+                # Use the helper function to get the file extension as filetype
+                file_type = get_dropbox_file_type(file.name)
+
                 stmt = insert(IndexedFile).values(
                     user_id=user_id,
                     account_id=account_id,
                     filename=file.name,
                     filepath=f"dropbox://{file_path}",
                     storage_type="dropbox",
+                    filetype=file_type,  # Save file extension as filetype
                     cloud_file_id=file.id,
-                    mime_type=file.content_hash,
+                    mime_type=file.content_hash,  # This is a unique identifier for the file, not the MIME type
                     last_modified=last_modified
                 ).on_conflict_do_update(
                     index_elements=["filepath"],
                     set_={
                         "filename": file.name,
                         "mime_type": file.content_hash,
+                        "filetype": file_type,  # Update filetype based on file extension
                         "last_modified": last_modified
                     }
                 )
@@ -355,7 +369,6 @@ def sync_dropbox(account_id, user_id):
 
         finally:
             session.remove()
-
 
 
 def run_with_app_context(app, func, *args):
@@ -379,7 +392,7 @@ def sanitize_filepath(path):
 
 def index_files_worker(user_id, base_directory):
     """Index all folders and files recursively in a given drive/directory with prefix search support."""
-    from app import app 
+    from app import app
     with app.app_context():
         session = scoped_session(sessionmaker(bind=db.engine))  # New DB session
 
@@ -398,14 +411,21 @@ def index_files_worker(user_id, base_directory):
                     folder_path = sanitize_filepath(os.path.join(root, folder))
                     if session.query(IndexedFile).filter_by(filepath=folder_path, user_id=user_id).first():
                         continue
-                    new_entries.append(IndexedFile(user_id=user_id, filename=folder, filepath=folder_path, is_folder=True))
+                    new_entries.append(IndexedFile(
+                        user_id=user_id,
+                        filename=folder,
+                        filepath=folder_path,
+                        is_folder=True,
+                        filetype="folder"  # Set filetype to 'folder' for directories
+                    ))
                     indexed_items.append({
                         "id": f"{user_id}_{folder_path}",
                         "user_id": user_id,
                         "filename": folder,
                         "filename_ngram": folder.lower(),  # 👈 Add ngram field for prefix search
                         "filepath": folder_path,
-                        "is_folder": True
+                        "is_folder": True,
+                        "filetype": "folder"  # Set filetype to 'folder' for directories
                     })
 
                 # Index Files
@@ -415,17 +435,30 @@ def index_files_worker(user_id, base_directory):
                         continue  # Skip hidden/system files
 
                     print(f"Indexing file: {file_path}")  # Debugging log
-                    
+
+                    # Extract file extension as filetype (e.g., 'pdf', 'txt', 'jpg')
+                    _, file_extension = os.path.splitext(file)
+                    file_extension = file_extension.lower().strip('.')  # Remove the leading dot and convert to lowercase
+
                     if session.query(IndexedFile).filter_by(filepath=file_path, user_id=user_id).first():
                         continue
-                    new_entries.append(IndexedFile(user_id=user_id, filename=file, filepath=file_path, is_folder=False))
+                    
+                    new_entries.append(IndexedFile(
+                        user_id=user_id,
+                        filename=file,
+                        filepath=file_path,
+                        is_folder=False,
+                        filetype=file_extension  # Save filetype (extension)
+                    ))
+
                     indexed_items.append({
                         "id": f"{user_id}_{file_path}",
                         "user_id": user_id,
                         "filename": file,
                         "filename_ngram": file.lower(),  # 👈 Add ngram field for prefix search
                         "filepath": file_path,
-                        "is_folder": False
+                        "is_folder": False,
+                        "filetype": file_extension  # Include filetype (extension) for files
                     })
 
             # Commit new entries to the database
@@ -446,9 +479,25 @@ def index_files_worker(user_id, base_directory):
             session.remove()
             indexing_status[user_id] = "completed"
 
-
 from sqlalchemy.dialects.postgresql import insert
 
+def get_file_type_from_mime(mime_type):
+    """Map MIME type to a simplified file type (e.g., 'pdf', 'image', 'docx', etc.)"""
+    mime_type_mapping = {
+        "application/pdf": "pdf",
+        "application/py": "py",
+        "application/msword": "docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+        "image/jpeg": "image",
+        "image/png": "image",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "spreadsheet",
+        "application/vnd.ms-excel": "spreadsheet",
+        "application/zip": "archive",
+        "audio/mpeg": "audio",
+        "video/mp4": "video",
+        # Add more mappings as needed
+    }
+    return mime_type_mapping.get(mime_type, "folder")  # Default to 'unknown' if not found
 def sync_google_drive(account_id, user_id):
     """Sync only the specified Google Drive account for a user, resolving conflicts properly."""
     access_token = get_access_token(account_id)
@@ -484,6 +533,10 @@ def sync_google_drive(account_id, user_id):
             for file in files:
                 file_id = file["id"]
                 last_modified = datetime.strptime(file["modifiedTime"], "%Y-%m-%dT%H:%M:%S.%fZ")
+                mime_type = file["mimeType"]
+
+                # Use the worker function to get the simplified file type
+                file_type = get_file_type_from_mime(mime_type)
 
                 # Prepare the insert statement with ON CONFLICT handling
                 stmt = insert(IndexedFile).values(
@@ -492,14 +545,16 @@ def sync_google_drive(account_id, user_id):
                     filename=file["name"],
                     filepath=f"drive://{file_id}",
                     storage_type="google_drive",
+                    filetype=file_type,  # Correct column name
                     cloud_file_id=file_id,
-                    mime_type=file["mimeType"],
+                    mime_type=mime_type,
                     last_modified=last_modified
                 ).on_conflict_do_update(
                     index_elements=["filepath"],  # This ensures the filepath uniqueness constraint is respected
                     set_={
                         "filename": file["name"],
-                        "mime_type": file["mimeType"],
+                        "mime_type": mime_type,
+                        "filetype": file_type,  # Correct column name
                         "last_modified": last_modified
                     }
                 )
@@ -516,9 +571,6 @@ def sync_google_drive(account_id, user_id):
 
         finally:
             session.remove()
-
-
-
 
 
 @search_bp.route("/index-files", methods=["POST"])
@@ -562,6 +614,10 @@ def search_files():
     limit = request.args.get("limit", 10, type=int)  # Default: 10 results per page
     offset = request.args.get("offset", 0, type=int)  # Default: Start from 0
 
+    # Get filters for service and file type
+    service_filter = request.args.get("service", "").lower()  # 'local', 'google_drive', 'dropbox'
+    filetype_filter = request.args.get("filetype", "").lower()  # 'pdf', 'docx', etc.
+
     if not query:
         return jsonify({"error": "Search query is required"}), 400
 
@@ -569,21 +625,43 @@ def search_files():
 
     # 1️⃣ **Prefix + Fuzzy Search in Elasticsearch (Local Storage)**
     try:
-        es_results = es.search(index="file_index", body={
+        es_query = {
             "query": {
                 "bool": {
                     "should": [
-                        { "prefix": { "filename": query } },  # Prefix search (autocomplete)
-                        { "match": { "filename": { "query": query, "fuzziness": "AUTO" } } }  # Fuzzy search (typos)
+                        { 
+                            "match": { 
+                                "filename": { 
+                                    "query": query, 
+                                    "operator": "and",  # This ensures that all search terms must appear
+                                    "fuzziness": "AUTO" 
+                                }
+                            }
+                        }
                     ],
                     "filter": [
-                        { "term": { "user_id": user_id } }  # Only return files for the user
+                        { "term": { "user_id": user_id } }
                     ]
                 }
             },
             "from": offset,
-            "size": limit  # Pagination in Elasticsearch
-        })
+            "size": limit
+        }
+
+
+        # Add service filter for Elasticsearch (local or cloud)
+        if service_filter and service_filter != "local":
+            es_query["query"]["bool"]["filter"].append({
+                "term": { "storage_type": service_filter }  # Google Drive or Dropbox filter
+            })
+        
+        # Add filetype filter for Elasticsearch
+        if filetype_filter:
+            es_query["query"]["bool"]["filter"].append({
+                "term": { "filetype": filetype_filter }  # Filter by filetype
+            })
+
+        es_results = es.search(index="file_index", body=es_query)
         results.extend([hit["_source"] for hit in es_results["hits"]["hits"]])
     except Exception as e:
         logging.error(f"Elasticsearch search error: {str(e)}")
@@ -592,11 +670,18 @@ def search_files():
     with current_app.app_context():
         session = scoped_session(sessionmaker(bind=db.engine))
 
-        cloud_files = session.query(IndexedFile).filter(
-            IndexedFile.user_id == user_id,
-            IndexedFile.filename.ilike(f"%{query}%"),  # Fuzzy match (SQL LIKE)
-            IndexedFile.storage_type.in_(["google_drive", "dropbox"])
-        ).offset(offset).limit(limit).all()  # Pagination for cloud files
+        # Cloud file filters
+        query_filters = [IndexedFile.user_id == user_id, IndexedFile.filename.ilike(f"%{query}%")]  # Prefix + fuzzy match
+
+        # Apply service filter (cloud storage types)
+        if service_filter:
+            query_filters.append(IndexedFile.storage_type == service_filter)
+
+        # Apply filetype filter
+        if filetype_filter:
+            query_filters.append(IndexedFile.filetype == filetype_filter)
+
+        cloud_files = session.query(IndexedFile).filter(*query_filters).offset(offset).limit(limit).all()
 
         session.remove()
 
@@ -616,18 +701,6 @@ def search_files():
         "limit": limit,
         "has_more": len(results) == limit  # Check if more results exist
     }), 200
-
-
-def search_google_drive_files(access_token, query):
-    """Search Google Drive for files matching query."""
-    creds = Credentials(token=access_token)
-    service = build("drive", "v3", credentials=creds)
-
-    response = service.files().list(q=f"name contains '{query}'", fields="files(id, name, mimeType)").execute()
-    files = response.get("files", [])
-    
-    
-    return [{"filename": file["name"], "cloud_file_id": file["id"], "storage_type": "google_drive"} for file in files]
 
 
 

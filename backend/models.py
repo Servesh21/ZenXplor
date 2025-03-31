@@ -74,6 +74,7 @@ class IndexedFile(db.Model):
     account_id = db.Column(db.Integer, db.ForeignKey('cloud_storage_account.id'), nullable=True)  # ForeignKey for cloud storage account
     filename = db.Column(db.String(255), nullable=False)
     filepath = db.Column(db.String(512), nullable=False, unique=True)  # Local or cloud path
+    filetype = db.Column(db.String(500), nullable=False)  # Ensure this field exists
     is_folder = db.Column(db.Boolean, nullable=False, default=False)  
     content_hash = db.Column(db.String(64), nullable=True)  # Optional for text search
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # Timestamp
@@ -95,6 +96,7 @@ class IndexedFile(db.Model):
             "account_id": self.account_id,
             "filename": self.filename,
             "filepath": self.filepath,
+            "filetype": self.filetype,
             "is_folder": self.is_folder,
             "storage_type": self.storage_type,
             "cloud_file_id": self.cloud_file_id,

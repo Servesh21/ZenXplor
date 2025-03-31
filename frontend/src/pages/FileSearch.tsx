@@ -17,17 +17,19 @@ const FileSearch: React.FC = () => {
   const [indexingStatus, setIndexingStatus] = useState("not_started");
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [serviceFilter, setServiceFilter] = useState<string>(""); // Service filter
+  const [fileTypeFilter, setFileTypeFilter] = useState<string>(""); // File type filter
   const observer = useRef<IntersectionObserver | null>(null);
 
   const LIMIT = 10;
 
-  // Fetch search results
+  // Fetch search results with filters
   const fetchFiles = async (newQuery = query, newOffset = offset) => {
     if (loading || !newQuery.trim() || !hasMore) return;
     setLoading(true);
     try {
       const response = await axios.get("http://localhost:5000/search/search-files", {
-        params: { q: newQuery, offset: newOffset, limit: LIMIT },
+        params: { q: newQuery, offset: newOffset, limit: LIMIT, service: serviceFilter, filetype: fileTypeFilter },
         withCredentials: true,
       });
 
@@ -51,7 +53,7 @@ const FileSearch: React.FC = () => {
       fetchFiles(query, 0);
     }, 500);
     return () => clearTimeout(delaySearch);
-  }, [query]);
+  }, [query, serviceFilter, fileTypeFilter]); // Add filters as dependencies
 
   // Infinite scrolling observer (inside scrollable div)
   const fileListRef = useRef<HTMLDivElement>(null);
@@ -91,8 +93,6 @@ const FileSearch: React.FC = () => {
     }
   };
 
-
-
   // Handle cloud file open (Google Drive, Dropbox)
   const handleOpenFileLocation = async (filepath: string) => {
     try {
@@ -129,6 +129,34 @@ const FileSearch: React.FC = () => {
           <FaSync className={indexingStatus === "indexing" ? "animate-spin" : ""} />
           {indexingStatus === "indexing" ? "Indexing..." : "Index Files"}
         </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex justify-between mb-4">
+        <select
+          value={serviceFilter}
+          onChange={(e) => setServiceFilter(e.target.value)}
+          className="border rounded-lg p-2 dark:bg-gray-700 dark:text-white"
+        >
+          <option value="">All Services</option>
+          <option value="local">Local</option>
+          <option value="google_drive">Google Drive</option>
+          <option value="dropbox">Dropbox</option>
+        </select>
+        
+        <select
+          value={fileTypeFilter}
+          onChange={(e) => setFileTypeFilter(e.target.value)}
+          className="border rounded-lg p-2 dark:bg-gray-700 dark:text-white"
+        >
+          <option value="">All File Types</option>
+          <option value="pdf">PDF</option>
+          <option value="docx">DOCX</option>
+          <option value="txt">TXT</option>
+          <option value="jpg">JPG</option>
+          <option value="png">PNG</option>
+          <option value="folder">FOLDER</option>
+        </select>
       </div>
 
       {/* Search Input */}
@@ -175,57 +203,56 @@ const FileSearch: React.FC = () => {
                     {file.filepath && <p className="text-sm text-gray-600 dark:text-gray-400 break-all">📂 {file.filepath}</p>}
                   </div>
                   <div className="flex gap-4">
-                  {file.storage_type === "google_drive" ? (
-        <a
-          href={`https://drive.google.com/open?id=${file.cloud_file_id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-500 hover:text-blue-700 bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-all"
-          title="Open in Google Drive"
-        >
-          <FaCloud size={18} />
-        </a>
-      ) : file.storage_type === "dropbox" ? (
-        <a
-          href={`https://www.dropbox.com/home/${file.cloud_file_id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-indigo-500 hover:text-indigo-700 bg-indigo-100 dark:bg-indigo-900/30 p-3 rounded-full hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition-all"
-          title="Open in Dropbox"
-        >
-          <FaCloud size={18} />
-        </a>
-      ) : (
-        <>
-          <button
-            onClick={() => handleDownload(file.filepath!)}
-            className="text-blue-500 hover:text-blue-700 bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-all"
-            title="Download file"
-          >
-            <FaDownload size={18} />
-          </button>
-          <button
-            onClick={() => handleOpenFileLocation(file.filepath!)}
-            className="text-green-500 hover:text-green-700 bg-green-100 dark:bg-green-900/30 p-3 rounded-full hover:bg-green-200 dark:hover:bg-green-800/50 transition-all"
-            title="Open file location"
-          >
-            <FaFolderOpen size={18} />
-          </button>
-        </>
-      )}
-    </div>
-  </li>
-))}
-
-          </ul>
-        ) : (
-          <div className="py-12 text-center">
-            <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto flex items-center justify-center">
-              <FaSearch className="text-gray-400 dark:text-gray-500" size={24} />
+                    {file.storage_type === "google_drive" ? (
+                      <a
+                        href={`https://drive.google.com/open?id=${file.cloud_file_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-500 hover:text-blue-700 bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-all"
+                        title="Open in Google Drive"
+                      >
+                        <FaCloud size={18} />
+                      </a>
+                    ) : file.storage_type === "dropbox" ? (
+                      <a
+                        href={`https://www.dropbox.com/home/${file.cloud_file_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-indigo-500 hover:text-indigo-700 bg-indigo-100 dark:bg-indigo-900/30 p-3 rounded-full hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition-all"
+                        title="Open in Dropbox"
+                      >
+                        <FaCloud size={18} />
+                      </a>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleDownload(file.filepath!)}
+                          className="text-blue-500 hover:text-blue-700 bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-all"
+                          title="Download file"
+                        >
+                          <FaDownload size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleOpenFileLocation(file.filepath!)}
+                          className="text-green-500 hover:text-green-700 bg-green-100 dark:bg-green-900/30 p-3 rounded-full hover:bg-green-200 dark:hover:bg-green-800/50 transition-all"
+                          title="Open file location"
+                        >
+                          <FaFolderOpen size={18} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="py-12 text-center">
+              <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto flex items-center justify-center">
+                <FaSearch className="text-gray-400 dark:text-gray-500" size={24} />
+              </div>
+              <p className="text-gray-400 dark:text-gray-500 text-lg mt-4">No files found.</p>
             </div>
-            <p className="text-gray-400 dark:text-gray-500 text-lg mt-4">No files found.</p>
-          </div>
-        )}
+          )}
         </div>
       </div>
     </div>

@@ -59,9 +59,9 @@ app.register_blueprint(search_bp, url_prefix="/search")
 app.register_blueprint(cloud_storage_bp)
 
 # ✅ Ensure auto-sync runs even when using `flask run`
-with app.app_context():
-    print("Starting auto-sync threads...")  # Debugging log
-    start_auto_sync_threads(app)  # Start local & cloud sync
+# with app.app_context():
+#     print("Starting auto-sync threads...")  # Debugging log
+#     start_auto_sync_threads(app)  # Start local & cloud sync
 
 if __name__ == "__main__":
     print("Flask app is running...")  # Debug

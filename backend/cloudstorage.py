@@ -133,7 +133,7 @@ def google_callback():
         db.session.add(new_account)
 
     db.session.commit()
-    frontend_redirect_url = f"{os.getenv('FRONTEND_REDIRECT_URI')}?status=success&email={email}"
+    frontend_redirect_url = f"{FRONTEND_REDIRECT_URI}?status=success&email={email}"
     return redirect(frontend_redirect_url)
 
 @cloud_storage_bp.route("/cloud-storage/dropbox/callback", methods=["GET"])
@@ -187,7 +187,7 @@ def dropbox_callback():
         db.session.add(new_account)
 
     db.session.commit()
-    frontend_redirect_url = f"{os.getenv('FRONTEND_REDIRECT_URI')}?status=success&email={email}"
+    frontend_redirect_url = f"{FRONTEND_REDIRECT_URI}?status=success&email={email}"
     return redirect(frontend_redirect_url)
 
 # --------------------------
