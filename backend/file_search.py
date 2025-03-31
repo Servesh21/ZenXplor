@@ -40,7 +40,7 @@ indexing_status = {}
 AUTO_SYNC_INTERVAL_LOCAL = 30
 AUTO_SYNC_INTERVAL=30
 
-EXCLUDE_DIRS = {"AppData","node_modules", ".git", ".Trash", "System Volume Information",".venv",".gradle"}
+EXCLUDE_DIRS = {"AppData","node_modules", ".git", ".Trash", "System Volume Information",".venv",".gradle", "Library", ".cache", ".config", ".idea", ".vscode"}
 EXCLUDE_FILES = {".DS_Store", "thumbs.db"}
 
 indexing_status = {}
@@ -66,15 +66,9 @@ def is_valid_dir(dir_path):
     return dir_name not in EXCLUDE_DIRS
 
 def get_user_dirs():
-    """Get valid user directories inside C:/Users."""
-    users_path = "C:/Users"
-    if os.path.exists(users_path):
-        return [
-            os.path.join(users_path, user) 
-            for user in os.listdir(users_path) 
-            if os.path.isdir(os.path.join(users_path, user)) and is_valid_dir(os.path.join(users_path, user))
-        ]
-    return []
+    """Get the current user's directory inside C:/Users."""
+    user_home = os.path.expanduser("~")  # Automatically gets C:/Users/Username
+    return [user_home] if os.path.exists(user_home) else []
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -93,49 +87,75 @@ def auto_index_local_storage():
 
         from concurrent.futures import ThreadPoolExecutor
 
-def auto_index_local_storage():
-    """Periodically check for new files and index only them, avoiding reindexing existing ones."""
-    while True:
-        with current_app.app_context():
-            users = db.session.query(IndexedFile.user_id).distinct().all()
-            user_dirs = get_user_dirs()
-
-            with ThreadPoolExecutor(max_workers=5) as executor:  # Limit threads to avoid overload
+executor = None
+def auto_index_local_storage(app):
+    """Periodically check for new files and index only new ones."""
+    global executor
+    print("starting auto-indexing...")
+    with app.app_context():  # ✅ Ensure we are inside Flask app context
+        while threading.main_thread().is_alive():
+            try:
+                users = db.session.query(IndexedFile.user_id).distinct().all()
+                user_dirs = get_user_dirs()
+                 # Debugging log
                 for (user_id,) in users:
                     for user_dir in user_dirs:
                         if is_valid_dir(user_dir):
-                            executor.submit(index_new_files_only, user_id, user_dir)
+                            executor.submit(index_new_files_only, user_id,app) # ✅ Submit safely
+                            print(f"Indexing new files for user {user_id} in {user_dir}")  # Debugging log
 
-        time.sleep(AUTO_SYNC_INTERVAL)
+            except RuntimeError as e:
+                if "cannot schedule new futures after shutdown" in str(e):
+                    print("🛑 Executor shutdown detected, stopping indexing thread.")
+                    break  # ✅ Exit loop if Flask is shutting down
+                print(f"❌ Error in auto-indexing: {str(e)}")
+
+            time.sleep(30)  # ✅ Prevent excessive CPU usage
+
+        print("🛑 Auto-indexing stopped.")
 
 
 
-def index_new_files_only(user_id, base_directory):
-    """Index only new files that are not already present in the database."""
-    from app import app  
-    with app.app_context():
-        session = scoped_session(sessionmaker(bind=db.engine))  # New DB session
-        
+def index_new_files_only(user_id, app):
+    """Index only new files inside the current user's home directory."""
+    
+    with app.app_context():  # ✅ Push application context using passed `app`
+        print(f"🔄 Starting indexing for user: {user_id}")
+
+        # ✅ Get the current user's home directory
+        user_home = os.path.expanduser("~")  # C:/Users/<username>
+        if not os.path.exists(user_home):
+            logging.warning(f"❌ User directory {user_home} not found.")
+            return
+
+        print(f"📂 Base directory for indexing: {user_home}")  # Debugging log
+
+        # ✅ Initialize a new database session
+        session = db.session
+
         indexed_items = []
         new_entries = []
 
         try:
-            for root, dirs, files in os.walk(base_directory):
-                dirs[:] = [d for d in dirs if is_valid_dir(os.path.join(root, d))]  # Filter out unnecessary dirs
+            for root, dirs, files in os.walk(user_home):
+                # ✅ Exclude unnecessary directories
+                dirs[:] = [d for d in dirs if is_valid_dir(os.path.join(root, d))]
 
                 for file in files:
-                    file_path = sanitize_filepath(os.path.join(root, file))
+                    file_path = os.path.join(root, file)
 
-                    if not is_valid_file(file_path):  # Exclude unnecessary files
+                    # ✅ Exclude hidden/system files
+                    if not is_valid_file(file_path):
+                        continue
+                    if not is_valid_dir(file_path):
                         continue
 
-                    # ✅ Check if the file is already indexed
+                    # ✅ Skip already indexed files
                     if session.query(IndexedFile).filter_by(filepath=file_path, user_id=user_id).first():
-                        continue  # Skip already indexed files
+                        continue  
 
-                    print(f"New file detected: {file_path}")  # Debugging log
+                    print(f"🆕 New file detected: {file_path}")  # Debugging log
 
-                    # Add new file entry
                     new_entries.append(IndexedFile(
                         user_id=user_id,
                         filename=file,
@@ -150,27 +170,23 @@ def index_new_files_only(user_id, base_directory):
                         "is_folder": False
                     })
 
-            # Commit only new entries to DB
+            # ✅ Commit new entries to DB
             if new_entries:
                 session.bulk_save_objects(new_entries)
                 session.commit()
-                print(f"✅ Indexed {len(new_entries)} new files")  # Debugging log
+                print(f"✅ Indexed {len(new_entries)} new files")
 
-            # Index new files in Elasticsearch
-            if indexed_items:
-                helpers.bulk(es, [
-                    {"_index": "file_index", "_id": item["id"], "_source": item}
-                    for item in indexed_items
-                ])
-                print(f"✅ Added {len(indexed_items)} new items to Elasticsearch")  # Debugging log
+            # ✅ Index in Elasticsearch
+            if indexed_items and es:
+                helpers.bulk(es, [{"_index": "file_index", "_id": item["id"], "_source": item} for item in indexed_items])
+                print(f"✅ Added {len(indexed_items)} new items to Elasticsearch")
 
         except Exception as e:
-            logging.error(f"Error during indexing new files: {str(e)}")
+            logging.error(f"❌ Error during indexing new files: {str(e)}")
+            session.rollback()
 
         finally:
-            session.remove()
-
-
+            session.close()
 
 def get_dropbox_access_token(account_id):
     """Fetch the access token for a specific Dropbox account."""
@@ -267,17 +283,19 @@ def auto_sync_dropbox():
 
 auto_sync_started = False  # Global flag
 
-def start_auto_sync_threads():
-    """Starts watchers for local storage and cloud sync, but only once."""
-    global auto_sync_started
-    if auto_sync_started:
-        return  # Prevent multiple invocations
-    from app import app 
-    threading.Thread(target=run_with_app_context, args=(app, auto_index_local_storage)).start()
-    threading.Thread(target=run_with_app_context, args=(app, auto_sync_google_drive)).start()
-    threading.Thread(target=run_with_app_context, args=(app, auto_sync_dropbox)).start()
-    
-    auto_sync_started = True  # Mark as started
+def start_auto_sync_threads(app):
+    """Start background threads for auto-syncing, ensuring Flask app context."""
+    global executor
+
+    if executor:
+        print("🔄 Stopping previous executor...")
+        executor.shutdown(wait=False)  # ✅ Properly stop previous threads before restarting
+
+    executor = ThreadPoolExecutor(max_workers=5)  # ✅ Restart the executor
+    print("🚀 Auto-sync threads started.")
+
+    indexing_thread = threading.Thread(target=auto_index_local_storage, args=(app,), daemon=True)  # ✅ Pass `app`
+    indexing_thread.start()
 
 
 def run_with_app_context(app, func, *args):
@@ -571,11 +589,16 @@ def open_file():
     data = request.get_json()
     file_path = data.get("filepath")
 
+    # 🔍 Debugging Logs
+    print(f"User {user_id} is requesting to open: {file_path}")
+
     if not file_path:
         return jsonify({"error": "File path is required"}), 400
 
+    # Check if the file is indexed and belongs to the authenticated user
     file_record = IndexedFile.query.filter_by(filepath=file_path, user_id=user_id).first()
     if not file_record:
+        print("❌ Unauthorized access attempt")  # Debugging log
         return jsonify({"error": "Unauthorized access"}), 403
 
     storage_type = file_record.storage_type  # "local", "google_drive", "dropbox"
@@ -584,35 +607,41 @@ def open_file():
     try:
         if storage_type == "local":
             if not os.path.exists(file_path):
+                print("❌ File not found")  # Debugging log
                 return jsonify({"error": "File not found"}), 400
 
+            # ✅ Open file location in the OS-specific file explorer
             if platform.system() == "Windows":
-                subprocess.run(["explorer", "/select,", file_path], check=True)
+                subprocess.run(f'explorer /select,"{file_path}"', shell=True, check=True)
             else:
                 subprocess.run(["xdg-open", file_path], check=True)
 
             return jsonify({"message": "File opened successfully"}), 200
 
         elif storage_type == "google_drive":
+            if not cloud_file_id:
+                return jsonify({"error": "Cloud file ID missing"}), 400
+
             drive_url = f"https://drive.google.com/uc?id={cloud_file_id}"
             return jsonify({"url": drive_url})
 
         elif storage_type == "dropbox":
-            # For Dropbox, we need to construct the URL using the file path
-            # Dropbox API does not provide a direct URL for files, so we use the path
-            # Example: https://www.dropbox.com/home/<path>?preview=<filename>
-            file = file_record.filename  # Get the filename from the record
-            print(f"File: {file}")  # Debugging log
-            filepath = file_record.filepath.replace("dropbox://", "")
+            if not cloud_file_id:
+                return jsonify({"error": "Cloud file ID missing"}), 400
 
-            dropbox_url = f"https://www.dropbox.com/home/{filepath}?preview={file}"
+            # Dropbox file link (ensure path formatting is correct)
+            file = file_record.filename  
+            dropbox_url = f"https://www.dropbox.com/home/{cloud_file_id}?preview={file}"
+
             return jsonify({"url": dropbox_url})
 
         else:
             return jsonify({"error": "Unsupported storage type"}), 400
 
     except Exception as e:
+        print(f"❌ Failed to open file: {e}")  # Debugging log
         return jsonify({"error": f"Failed to open file: {str(e)}"}), 500
+    
 @search_bp.route("/sync-cloud-storage", methods=["POST"])
 @jwt_required()
 def sync_google_drive_account():
