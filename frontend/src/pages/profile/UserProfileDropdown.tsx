@@ -14,10 +14,8 @@ const predefinedImages = [
 const UserProfileDropdown: React.FC<{ 
   user: { username: string; email: string; profile_picture?: string } | null;
   handleLogout: () => void;
-  darkMode: boolean;
-  setDarkMode: (mode: boolean) => void;
   setUser?: React.Dispatch<React.SetStateAction<{ username: string; email: string; profile_picture?: string } | null>>;
-}> = ({ user, handleLogout, darkMode, setDarkMode, setUser }) => {
+}> = ({ user, handleLogout, setUser }) => {
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -62,7 +60,7 @@ const UserProfileDropdown: React.FC<{
         })
       });
       
-      const data = await response.json();
+      
       if (response.ok) {
         setUser({ ...user, profile_picture: avatarUrl });
         setUpdateMessage("Avatar updated!");

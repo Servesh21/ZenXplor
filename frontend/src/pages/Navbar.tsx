@@ -97,7 +97,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, setUser, darkMode, setDarkMode })
         </button>
 
         {user ? (
-          <UserProfileDropdown user={user} handleLogout={handleLogout} darkMode={darkMode} setDarkMode={setDarkMode} />
+          <UserProfileDropdown user={user} handleLogout={handleLogout}  />
         ) : (
           <Link
             to="/login"

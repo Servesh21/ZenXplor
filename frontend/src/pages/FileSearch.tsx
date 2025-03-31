@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
-import { FaDownload, FaFolderOpen, FaSearch, FaSync, FaCloud, FaHdd } from "react-icons/fa";
+import { FaDownload, FaFolderOpen, FaSearch, FaSync, FaCloud } from "react-icons/fa";
 
 interface FileItem {
   id: number;
@@ -53,7 +53,8 @@ const FileSearch: React.FC = () => {
     return () => clearTimeout(delaySearch);
   }, [query]);
 
-  // Infinite scrolling observer
+  // Infinite scrolling observer (inside scrollable div)
+  const fileListRef = useRef<HTMLDivElement>(null);
   const lastFileRef = useCallback(
     (node: HTMLLIElement | null) => {
       if (loading) return;
@@ -64,30 +65,16 @@ const FileSearch: React.FC = () => {
             fetchFiles(query, offset);
           }
         },
-        { threshold: 1 }
+        { root: fileListRef.current, threshold: 1 }
       );
       if (node) observer.current.observe(node);
     },
     [loading, hasMore, query, offset]
   );
 
-  // Index files
-  const handleIndex = async () => {
-    setIndexingStatus("indexing");
-    try {
-      await axios.post("http://localhost:5000/search/index-files", {}, { withCredentials: true });
-      setIndexingStatus("completed");
-    } catch (error) {
-      console.error("Indexing failed:", error);
-      setIndexingStatus("failed");
-    }
-  };
-
-  // Download file
   const handleDownload = async (filepath: string) => {
     try {
-      const response = await axios.get(`http://localhost:5000/search/download-file`, {
-        params: { filepath },
+      const response = await axios.get(`http://localhost:5000/search/download-file?filepath=${encodeURIComponent(filepath)}`, {
         withCredentials: true,
         responseType: "blob",
       });
@@ -104,12 +91,26 @@ const FileSearch: React.FC = () => {
     }
   };
 
-  // Open file location
+
+
+  // Handle cloud file open (Google Drive, Dropbox)
   const handleOpenFileLocation = async (filepath: string) => {
     try {
       await axios.post("http://localhost:5000/search/open-file", { filepath }, { withCredentials: true });
     } catch (error) {
       console.error("Failed to open file location:", error);
+    }
+  }
+
+  // Index files
+  const handleIndex = async () => {
+    setIndexingStatus("indexing");
+    try {
+      await axios.post("http://localhost:5000/search/index-files", {}, { withCredentials: true });
+      setIndexingStatus("completed");
+    } catch (error) {
+      console.error("Indexing failed:", error);
+      setIndexingStatus("failed");
     }
   };
 
@@ -119,6 +120,7 @@ const FileSearch: React.FC = () => {
         File Search
       </h2>
 
+      {/* Index Button */}
       <div className="mb-4 flex justify-center">
         <button
           onClick={handleIndex}
@@ -129,6 +131,7 @@ const FileSearch: React.FC = () => {
         </button>
       </div>
 
+      {/* Search Input */}
       <div className="relative mb-6">
         <div className="flex">
           <input
@@ -138,7 +141,7 @@ const FileSearch: React.FC = () => {
             onChange={(e) => setQuery(e.target.value)}
             className="w-full p-4 pr-12 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-l-lg focus:ring-2 focus:ring-blue-500"
           />
-          <button 
+          <button
             onClick={() => fetchFiles(query, 0)}
             className="bg-gradient-to-r from-green-500 to-emerald-600 text-white px-6 rounded-r-lg hover:from-green-600 hover:to-emerald-700 flex items-center justify-center"
           >
@@ -147,38 +150,83 @@ const FileSearch: React.FC = () => {
         </div>
       </div>
 
+      {/* Search Results Container (Scrollable) */}
       <div className="bg-gray-50 dark:bg-gray-700/30 p-4 rounded-xl mb-4">
         <h3 className="text-xl font-semibold mb-4 flex items-center">
           <span className="bg-gradient-to-r from-green-500 to-teal-500 bg-clip-text text-transparent">Search Results</span>
           {loading && <div className="ml-3 h-5 w-5 border-t-2 border-r-2 border-blue-500 rounded-full animate-spin"></div>}
         </h3>
 
-        {files.length > 0 ? (
-          <ul className="space-y-3">
-            {files.map((file, index) => (
-              <li
-                key={file.id}
-                ref={index === files.length - 1 ? lastFileRef : null}
-                className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all border border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
-              >
-                <div>
-                  <p className="font-semibold text-lg">{file.filename}</p>
-                  {file.filepath && <p className="text-sm text-gray-600 dark:text-gray-400 break-all">📂 {file.filepath}</p>}
-                </div>
-                <div className="flex gap-4">
-                  <button onClick={() => handleDownload(file.filepath!)} className="text-blue-500 hover:text-blue-700">
-                    <FaDownload size={18} />
-                  </button>
-                  <button onClick={() => handleOpenFileLocation(file.filepath!)} className="text-green-500 hover:text-green-700">
-                    <FaFolderOpen size={18} />
-                  </button>
-                </div>
-              </li>
-            ))}
+        {/* Scrollable List */}
+        <div
+          ref={fileListRef}
+          className="max-h-80 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-lg p-2"
+        >
+          {files.length > 0 ? (
+            <ul className="space-y-3">
+              {files.map((file, index) => (
+                <li
+                  key={file.id}
+                  ref={index === files.length - 1 ? lastFileRef : null}
+                  className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all border border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
+                >
+                  <div>
+                    <p className="font-semibold text-lg">{file.filename}</p>
+                    {file.filepath && <p className="text-sm text-gray-600 dark:text-gray-400 break-all">📂 {file.filepath}</p>}
+                  </div>
+                  <div className="flex gap-4">
+                  {file.storage_type === "google_drive" ? (
+        <a
+          href={`https://drive.google.com/open?id=${file.cloud_file_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-500 hover:text-blue-700 bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-all"
+          title="Open in Google Drive"
+        >
+          <FaCloud size={18} />
+        </a>
+      ) : file.storage_type === "dropbox" ? (
+        <a
+          href={`https://www.dropbox.com/home/${file.cloud_file_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-indigo-500 hover:text-indigo-700 bg-indigo-100 dark:bg-indigo-900/30 p-3 rounded-full hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition-all"
+          title="Open in Dropbox"
+        >
+          <FaCloud size={18} />
+        </a>
+      ) : (
+        <>
+          <button
+            onClick={() => handleDownload(file.filepath!)}
+            className="text-blue-500 hover:text-blue-700 bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-all"
+            title="Download file"
+          >
+            <FaDownload size={18} />
+          </button>
+          <button
+            onClick={() => handleOpenFileLocation(file.filepath!)}
+            className="text-green-500 hover:text-green-700 bg-green-100 dark:bg-green-900/30 p-3 rounded-full hover:bg-green-200 dark:hover:bg-green-800/50 transition-all"
+            title="Open file location"
+          >
+            <FaFolderOpen size={18} />
+          </button>
+        </>
+      )}
+    </div>
+  </li>
+))}
+
           </ul>
         ) : (
-          <p className="text-gray-400 text-center">No files found.</p>
+          <div className="py-12 text-center">
+            <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto flex items-center justify-center">
+              <FaSearch className="text-gray-400 dark:text-gray-500" size={24} />
+            </div>
+            <p className="text-gray-400 dark:text-gray-500 text-lg mt-4">No files found.</p>
+          </div>
         )}
+        </div>
       </div>
     </div>
   );
