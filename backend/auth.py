@@ -6,9 +6,10 @@ from flask_jwt_extended import (
 )
 from models import db, User
 from flask_cors import CORS
+from file_search import start_auto_sync_threads
 
 auth_bp = Blueprint("auth", __name__)
-CORS(auth_bp, supports_credentials=True, origins=["http://localhost:5173"])
+CORS(auth_bp, supports_credentials=True)
 
 # Predefined profile pictures
 PREDEFINED_PROFILE_PICTURES = [
@@ -25,7 +26,7 @@ def signup():
     username = data.get("username")
     email = data.get("email")
     password = data.get("password")
-    profile_picture = data.get("profile_picture", PREDEFINED_PROFILE_PICTURES[0])  # Default avatar
+    profile_picture = data.get("profile_picture", PREDEFINED_PROFILE_PICTURES[0])
 
     if not username or not email or not password:
         return jsonify({"error": "All fields are required"}), 400
@@ -36,13 +37,30 @@ def signup():
     if profile_picture not in PREDEFINED_PROFILE_PICTURES:
         return jsonify({"error": "Invalid profile picture selection"}), 400
 
-    hashed_password = generate_password_hash(password)
-    new_user = User(username=username, email=email, password_hash=hashed_password, profile_picture=profile_picture)
+    try:
+        new_user = User(username=username, email=email, password=password, profile_picture=profile_picture)
+        db.session.add(new_user)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to create user", "details": str(e)}), 500
 
-    db.session.add(new_user)
-    db.session.commit()
-
-    return jsonify({"message": "User created successfully"}), 201
+    # Automatically log in the user after successful signup:
+    access_token = create_access_token(identity=str(new_user.id))
+    response = make_response(jsonify({
+        "message": "User created successfully",
+        "user": new_user.to_dict()
+    }), 201)
+    response.set_cookie(
+        "access_token_cookie", 
+        access_token, 
+        httponly=True, 
+        samesite="Lax", 
+        secure=False,  # Change to True in production (HTTPS)
+        max_age=7 * 24 * 60 * 60  # 7 days in seconds
+    )
+    return response
+ 
 
 @auth_bp.route("/login", methods=["POST"])
 def login():
@@ -64,8 +82,9 @@ def login():
     }))
 
     response.set_cookie(
-        "access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False
+        "access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False,max_age=7 * 24 * 60 * 60 
     )
+    start_auto_sync_threads()
 
     return response, 200
 
@@ -75,6 +94,8 @@ def logout():
     response = make_response(jsonify({"message": "Logged out successfully"}))
     unset_jwt_cookies(response)
     return response, 200
+
+
 
 @auth_bp.route("/profile", methods=["GET"])
 @jwt_required()
@@ -87,8 +108,14 @@ def profile():
         if not user:
             return jsonify({"error": "User not found"}), 404
 
-        return jsonify(user.to_dict()), 200
-    except Exception:
+        return jsonify({
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "profile_picture": user.profile_picture
+        }), 200
+    except Exception as e:
+        print(f"Profile error: {str(e)}")
         return jsonify({"error": "Invalid or expired token"}), 401
 
 @auth_bp.route("/edit-profile", methods=["PUT"])
@@ -125,3 +152,4 @@ def edit_profile():
     except Exception as e:
         print("Error:", e)  # Print the error to the Flask console
         return jsonify({"error": "An error occurred", "details": str(e)}), 500
+    

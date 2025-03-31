@@ -28,6 +28,16 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
   const navigate = useNavigate();
   const { signIn, isLoaded: signInLoaded } = useSignIn();
 
+  // Helper functions for validation
+  const validateEmail = (email: string): boolean => {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+  };
+
+  const validatePassword = (password: string): boolean => {
+    return password.length >= 8;
+  };
+
   // Google Authentication via Clerk - Unchanged logic
   const handleGoogleAuth = async () => {
     try {
@@ -88,7 +98,7 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
         }), { expires: 7, secure: false, sameSite: "Lax" });
   
         setSuccess("Login successful!");
-        setTimeout(() => navigate("/"), 1000);
+        setTimeout(() => navigate("/storage-overview"), 1000);
       } else {
         setError(data.error || "Invalid email or password.");
         setIsLoading(false);
@@ -100,29 +110,35 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
     }
   };
   
-  // Handle Signup - Unchanged logic
+  // Handle Signup with Direct Login, with added validation
   const handleSignup = async () => {
     if (password !== confirmPassword) {
       setError("Passwords do not match!");
       return;
     }
-
+    if (!validateEmail(email)) {
+      setError("Invalid email format.");
+      return;
+    }
+    if (!validatePassword(password)) {
+      setError("Password must be at least 8 characters long.");
+      return;
+    }
+  
     try {
       setIsLoading(true);
       const response = await fetch("http://localhost:5000/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        credentials: "include",  // Ensure cookies are sent/received
         body: JSON.stringify({ username, email, password }),
       });
-
+  
       const data = await response.json();
       if (response.ok) {
         setUser(data.user);
-        Cookies.set("user", JSON.stringify(data.user), { expires: 7, secure: true, sameSite: "Strict" });
-
-        setSuccess("Signup successful! Redirecting...");
-        setTimeout(() => navigate("/"), 1500);
+        setSuccess("Signup successful! Logging you in...");
+        setTimeout(() => navigate("/storage-overview"), 1500);
       } else {
         setError(data.error || "Signup failed.");
         setIsLoading(false);
@@ -133,7 +149,7 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
       setIsLoading(false);
     }
   };
-
+  
   // Clear errors/success when switching modes
   useEffect(() => {
     setError("");
@@ -234,7 +250,7 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
           {error && (
             <div className="mb-6 p-4 rounded-lg bg-red-50 dark:bg-red-900/30 border-l-4 border-red-500 text-red-700 dark:text-red-300 flex items-start">
               <svg className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                <path d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
               </svg>
               <p>{error}</p>
             </div>
@@ -243,7 +259,7 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
           {success && (
             <div className="mb-6 p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border-l-4 border-green-500 text-green-700 dark:text-green-300 flex items-start">
               <svg className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
               <p>{success}</p>
             </div>

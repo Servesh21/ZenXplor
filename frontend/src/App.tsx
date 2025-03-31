@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from "react";
-import Navbar from "./components/Navbar";
+import Navbar from "./pages/Navbar";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import Homepage from "./components/Homepage";
-import FileSearch from "./components/FileSearch";
-import SignUp from "./components/SignUp";
-import StorageOverview from "./components/StorageOverview";
+import Homepage from "./pages/Homepage";
+import FileSearch from "./pages/FileSearch";
+import SignUp from "./pages/SignUp";
+import StorageOverview from "./pages/profile/StorageOverview";
 import SignInCallback from "./SignInCallback";
-import Profile from "./components/profile/Profile";
-import Settings from "./components/profile/Settings";
-import Footer from "./components/Footer";
+import Profile from "./pages/profile/Profile";
+import Settings from "./pages/profile/Settings";
+import Footer from "./pages/Footer";
 import { ClerkProvider } from "@clerk/clerk-react";
 import "./assets/index.css";
 

@@ -7,9 +7,8 @@ import os
 from extensions import db  # db is defined in extensions.py
 from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
-from file_search import search_bp  # Import your search blueprint
-
-
+from file_search import search_bp, start_auto_sync_threads  # Updated import
+from cloudstorage import cloud_storage_bp  # Import your cloud storage blueprint
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -40,13 +39,13 @@ app.config["JWT_COOKIE_CSRF_PROTECT"] = False
 
 jwt = JWTManager(app)
 
-# Register Blueprints
+# Register Blueprints BEFORE running the app
 app.register_blueprint(auth_bp, url_prefix="/auth")
-app.register_blueprint(search_bp, url_prefix="/search")  # Add this line
-
-# Ensure DB is set up correctly
-with app.app_context():
-    db.create_all()  # Creates tables if they don't exist
+app.register_blueprint(search_bp, url_prefix="/search")  
+app.register_blueprint(cloud_storage_bp)  
 
 if __name__ == "__main__":
+    print("Starting auto-sync threads...")  # Debug
+    start_auto_sync_threads()  # Start auto-sync threads for Local & Cloud storage
+    print("Flask app is running...")  # Debug
     app.run(debug=True)
