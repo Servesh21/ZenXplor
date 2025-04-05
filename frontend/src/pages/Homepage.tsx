@@ -17,7 +17,7 @@ const sources: string[] = [
   "Local Files",
   "Google Drive",
   "Gmail Attachments",
-  "OneDrive",
+  "Google Photos",
   "Dropbox",
 ];
 

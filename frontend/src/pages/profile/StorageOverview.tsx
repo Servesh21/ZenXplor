@@ -14,7 +14,6 @@ interface Account {
 }
 
 const CloudStorageAccounts = () => {
-  
   const [showAddModal, setShowAddModal] = useState(false);
   const [connectedAccounts, setConnectedAccounts] = useState<Account[]>([]);
   const [syncingAccount, setSyncingAccount] = useState<number | null>(null);
@@ -33,12 +32,10 @@ const CloudStorageAccounts = () => {
         }
 
         setUserId(id);
-        console.log("User ID set:", userId);
+        
         const accountsResponse = await axios.get(`${BACKEND_URL}/cloud-accounts/${id}`, {
           withCredentials: true,
         });
-
-        console.log("Fetched accounts:", accountsResponse.data);
         setConnectedAccounts(accountsResponse.data);
       } catch (error) {
         console.error("Error fetching user ID or accounts:", error);
@@ -54,46 +51,30 @@ const CloudStorageAccounts = () => {
       `client_id=${encodeURIComponent(CLIENT_ID)}` +
       `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
       `&response_type=code` +
-      `&scope=${encodeURIComponent("https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile")}` +
+      `&scope=${encodeURIComponent("https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/photoslibrary.readonly")}` +
       `&access_type=offline` +
       `&prompt=consent`;
-    
+
     window.location.href = authUrl;
     console.log("Redirecting to:", authUrl);
   };
 
   const handleAddDropbox = () => {
-    const DROPBOX_REDIRECT_URI = "http://localhost:5000/cloud-storage/dropbox/callback"; // Ensure this matches the registered redirect URI
-  
+    const DROPBOX_REDIRECT_URI = "http://localhost:5000/cloud-storage/dropbox/callback";
+
     const authUrl = `https://www.dropbox.com/oauth2/authorize?` +
       `client_id=${encodeURIComponent(DROPBOX_CLIENT_ID)}` +
       `&response_type=code` +
       `&redirect_uri=${encodeURIComponent(DROPBOX_REDIRECT_URI)}`;
-  
+
     window.location.href = authUrl;
     console.log("Redirecting to:", authUrl);
   };
 
-  const handleSyncAccount = async (accountId: number) => {
-    setSyncingAccount(accountId);
-    
-    console.log("Syncing account:", accountId);
-    try {
-      await axios.post(`${BACKEND_URL}/search/sync-cloud-storage`, { account_id: accountId }, { withCredentials: true });
-      setConnectedAccounts((prev) =>
-        prev.map((account) => account.id === accountId ? { ...account, lastSynced: new Date().toISOString() } : account)
-      );
-    } catch (error) {
-      console.error("Error syncing account:", error);
-    } finally {
-      setSyncingAccount(null);
-    }
-  };
-
   const handleSyncDropbox = async (accountId: number) => {
     setSyncingAccount(accountId);
-
     console.log("Syncing Dropbox account:", accountId);
+
     try {
       await axios.post(`${BACKEND_URL}/search/sync-dropbox`, { account_id: accountId }, { withCredentials: true });
       setConnectedAccounts((prev) =>
@@ -101,6 +82,33 @@ const CloudStorageAccounts = () => {
       );
     } catch (error) {
       console.error("Error syncing Dropbox account:", error);
+    } finally {
+      setSyncingAccount(null);
+    }
+  };
+
+  const handleSyncGoogleAccount = async (accountId: number) => {
+    setSyncingAccount(accountId);
+    console.log("Syncing Google account (Drive + Gmail + Photos):", accountId);
+
+    try {
+      // 1. Sync Google Drive
+      await axios.post(`${BACKEND_URL}/search/sync-cloud-storage`, { account_id: accountId }, { withCredentials: true });
+
+      // 2. Sync Gmail attachments
+      await axios.post(`${BACKEND_URL}/search/gmail/sync`, {account_id: accountId}, { withCredentials: true });
+
+      // 3. Sync Google Photos
+      await axios.post(`${BACKEND_URL}/search/photos/sync`, {account_id: accountId}, { withCredentials: true });
+
+      // Update last synced timestamp
+      setConnectedAccounts((prev) =>
+        prev.map((account) =>
+          account.id === accountId ? { ...account, lastSynced: new Date().toISOString() } : account
+        )
+      );
+    } catch (error) {
+      console.error("Error syncing Google account:", error);
     } finally {
       setSyncingAccount(null);
     }
@@ -137,14 +145,24 @@ const CloudStorageAccounts = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <p className="text-sm text-gray-500 dark:text-gray-400">{account.lastSynced ? `Last synced: ${new Date(account.lastSynced).toLocaleString()}` : "Not yet synced"}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {account.lastSynced ? `Last synced: ${new Date(account.lastSynced).toLocaleString()}` : "Not yet synced"}
+                      </p>
                       {account.provider === "Dropbox" ? (
-                        <button onClick={() => handleSyncDropbox(account.id)} disabled={syncingAccount === account.id} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:bg-gray-500">
+                        <button
+                          onClick={() => handleSyncDropbox(account.id)}
+                          disabled={syncingAccount === account.id}
+                          className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:bg-gray-500"
+                        >
                           {syncingAccount === account.id ? "Syncing..." : "Sync Dropbox"}
                         </button>
                       ) : (
-                        <button onClick={() => handleSyncAccount(account.id)} disabled={syncingAccount === account.id} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:bg-gray-500">
-                          {syncingAccount === account.id ? "Syncing..." : "Sync"}
+                        <button
+                          onClick={() => handleSyncGoogleAccount(account.id)}
+                          disabled={syncingAccount === account.id}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:bg-gray-500"
+                        >
+                          {syncingAccount === account.id ? "Syncing..." : "Sync Google"}
                         </button>
                       )}
                     </div>

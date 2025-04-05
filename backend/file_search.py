@@ -12,6 +12,8 @@ import time
 from flask import Blueprint, jsonify, send_file, current_app, request as flask_request
 from sqlalchemy.orm import scoped_session, sessionmaker
 from flask import send_file
+from googleapiclient.discovery import build
+from googleapiclient.discovery import build_from_document
 import platform , subprocess
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
@@ -376,10 +378,7 @@ def run_with_app_context(app, func, *args):
     with app.app_context():
         func(*args)
 
-def get_access_token(account_id):
-    """Fetch the access token for a specific Google Drive account."""
-    account = CloudStorageAccount.query.filter_by(id=account_id, provider="Google Drive").first()
-    return account.access_token if account else None
+
 
 def get_available_drives():
     """Return only the current user's directory in C drive."""
@@ -481,6 +480,12 @@ def index_files_worker(user_id, base_directory):
 
 from sqlalchemy.dialects.postgresql import insert
 
+
+def get_access_token(account_id):
+    """Fetch the access token for a specific Google Drive account."""
+    account = CloudStorageAccount.query.filter_by(id=account_id, provider="Google Drive").first()
+    return account.access_token if account else None
+
 def get_file_type_from_mime(mime_type):
     """Map MIME type to a simplified file type (e.g., 'pdf', 'image', 'docx', etc.)"""
     mime_type_mapping = {
@@ -498,6 +503,8 @@ def get_file_type_from_mime(mime_type):
         # Add more mappings as needed
     }
     return mime_type_mapping.get(mime_type, "folder")  # Default to 'unknown' if not found
+
+
 def sync_google_drive(account_id, user_id):
     """Sync only the specified Google Drive account for a user, resolving conflicts properly."""
     access_token = get_access_token(account_id)
@@ -569,6 +576,122 @@ def sync_google_drive(account_id, user_id):
             session.rollback()
             logging.error(f"Error syncing Google Drive (Account {account_id}): {str(e)}")
 
+        finally:
+            session.remove()
+
+
+def sync_gmail_attachments(account_id, user_id):
+    print("entered gmail attacjments")
+    access_token = get_access_token(account_id)
+    if not access_token:
+        logging.error(f"No valid access token for Gmail (Account {account_id})")
+        return
+    with current_app.app_context():
+        session = scoped_session(sessionmaker(bind=db.engine))
+        creds = Credentials(token=access_token)
+        service = build("gmail", "v1", credentials=creds)
+
+        try:
+            messages = service.users().messages().list(userId="me", q="has:attachment").execute().get("messages", [])
+
+            for msg in messages:
+                message = service.users().messages().get(userId="me", id=msg["id"]).execute()
+                payload = message.get("payload", {})
+                parts = payload.get("parts", [])
+
+                for part in parts:
+                    if part.get("filename") and "attachmentId" in part.get("body", {}):
+                        filename = part["filename"]
+                        filetype = filename.split(".")[-1] if "." in filename else "unknown"
+                        attachment_id = part["body"]["attachmentId"]
+
+                        stmt = insert(IndexedFile).values(
+                            user_id=user_id,
+                            account_id=account_id,
+                            filename=filename,
+                            filepath=f"gmail://{msg['id']}/{attachment_id}",
+                            storage_type="gmail",
+                            filetype=filetype,
+                            cloud_file_id=attachment_id,
+                            mime_type=part.get("mimeType", "application/octet-stream"),
+                            last_modified=datetime.utcnow()
+                        ).on_conflict_do_update(
+                            index_elements=["filepath"],
+                            set_={"last_modified": datetime.utcnow()}
+                        )
+
+                        db.session.execute(stmt)
+
+            db.session.commit()
+            logging.info(f"✅ Synced Gmail attachments for user {user_id}")
+
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error syncing Gmail attachments: {str(e)}")
+        
+        finally:
+            session.remove()
+
+def sync_google_photos(account_id, user_id):
+    access_token = get_access_token(account_id)
+    if not access_token:
+        logging.error(f"No valid access token for Google Photos (Account {account_id})")
+        return
+
+    with current_app.app_context():
+        session = scoped_session(sessionmaker(bind=db.engine))
+        creds = Credentials(token=access_token)
+
+
+        photos_api_discovery_url = "https://photoslibrary.googleapis.com/$discovery/rest?version=v1"
+        service = build("photoslibrary", "v1", credentials=creds, discoveryServiceUrl=photos_api_discovery_url)
+
+
+        try:
+            media_items = []
+            next_page_token = None
+
+            while True:
+                response = service.mediaItems().list(
+                    pageSize=100,
+                    pageToken=next_page_token
+                ).execute()
+
+                media_items.extend(response.get("mediaItems", []))
+                next_page_token = response.get("nextPageToken")
+                if not next_page_token:
+                    break
+
+            for item in media_items:
+                filename = item.get("filename")
+                mime_type = item.get("mimeType", "image/jpeg")
+                photo_id = item.get("id")
+                filetype = filename.split(".")[-1] if "." in filename else "image"
+
+                stmt = insert(IndexedFile).values(
+                    user_id=user_id,
+                    account_id=account_id,
+                    filename=filename,
+                    filepath=f"photos://{photo_id}",
+                    storage_type="google_photos",
+                    filetype=filetype,
+                    cloud_file_id=photo_id,
+                    mime_type=mime_type,
+                    last_modified=datetime.utcnow()
+                ).on_conflict_do_update(
+                    index_elements=["filepath"],
+                    set_={"last_modified": datetime.utcnow()}
+                )
+
+                db.session.execute(stmt)
+
+            db.session.commit()
+            logging.info(f"✅ Synced Google Photos for user {user_id}")
+
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error syncing Google Photos: {str(e)}")
+        
         finally:
             session.remove()
 
@@ -779,11 +902,53 @@ def sync_google_drive_account():
 
     try:
         sync_google_drive(account_id, user_id)
+        print("synced gdrive");
         return jsonify({"message": f"Google Drive sync started for account {account_id}"}), 200
     except Exception as e:
         logging.error(f"Error syncing Google Drive (Account {account_id}): {str(e)}")
         return jsonify({"error": "Failed to sync Google Drive"}), 500
     
+@search_bp.route("/gmail/sync", methods=["POST"])
+@jwt_required()
+def sync_gmail():
+    """Sync a specific Google Drive account for the user."""
+    user_id = get_jwt_identity()
+    data = request.json
+    account_id = data.get("account_id")
+
+
+    if not account_id:
+        return jsonify({"error": "Account ID is required"}), 400
+
+    try:
+
+        sync_gmail_attachments(account_id,user_id)
+        print("sync gmail")
+        return jsonify({"message": f"Google Drive sync started for account {account_id}"}), 200
+    except Exception as e:
+        logging.error(f"Error syncing Google Drive (Account {account_id}): {str(e)}")
+        return jsonify({"error": "Failed to sync Google Drive"}), 500
+
+@search_bp.route("/photos/sync", methods=["POST"])
+@jwt_required()
+def sync_gphotos():
+    """Sync a specific Google Drive account for the user."""
+    user_id = get_jwt_identity()
+    data = request.json
+    account_id = data.get("account_id")
+
+
+    if not account_id:
+        return jsonify({"error": "Account ID is required"}), 400
+
+    try:
+
+        sync_google_photos(account_id,user_id)
+        print("synced google photos")
+        return jsonify({"message": f"Google Drive sync started for account {account_id}"}), 200
+    except Exception as e:
+        logging.error(f"Error syncing Google Drive (Account {account_id}): {str(e)}")
+        return jsonify({"error": "Failed to sync Google Drive"}), 500
 
 def check_elasticsearch():
     """Check if Elasticsearch is reachable."""

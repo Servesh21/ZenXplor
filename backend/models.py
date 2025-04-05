@@ -81,8 +81,8 @@ class IndexedFile(db.Model):
     
     # New fields for cloud storage
     storage_type = db.Column(db.String(20), nullable=False, default="local")  # "local", "google_drive", etc.
-    cloud_file_id = db.Column(db.String(128), nullable=True, unique=True)  # Google Drive file ID, etc.
-    mime_type = db.Column(db.String(128), nullable=True)  # For cloud storage files
+    cloud_file_id = db.Column(db.String(1024), nullable=True, unique=True)  # Google Drive file ID, etc.
+    mime_type = db.Column(db.String(1024), nullable=True)  # For cloud storage files
     last_modified = db.Column(db.DateTime, nullable=True)  # Last modified timestamp (for cloud files)
 
     # Relationship
