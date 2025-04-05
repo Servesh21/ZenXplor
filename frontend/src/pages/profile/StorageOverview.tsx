@@ -24,7 +24,7 @@ const CloudStorageAccounts = () => {
       try {
         const userResponse = await axios.get(`${BACKEND_URL}/auth/profile`, { withCredentials: true });
         const id = userResponse.data.id;
-        console.log("Fetched user ID:", id);
+        
 
         if (!id) {
           console.error("User ID not found");
@@ -32,7 +32,7 @@ const CloudStorageAccounts = () => {
         }
 
         setUserId(id);
-        
+        userId
         const accountsResponse = await axios.get(`${BACKEND_URL}/cloud-accounts/${id}`, {
           withCredentials: true,
         });
