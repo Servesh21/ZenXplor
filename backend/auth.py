@@ -19,6 +19,34 @@ PREDEFINED_PROFILE_PICTURES = [
     "https://avataaars.io/?avatarStyle=Circle&topType=ShortHairShortCurly&accessoriesType=Blank&hairColor=Black&facialHairType=Blank&clotheType=Hoodie&clotheColor=Blue03&eyeType=Default&eyebrowType=Default&mouthType=Smile&skinColor=Pale",
     "https://avataaars.io/?avatarStyle=Circle&topType=ShortHairShortCurly&accessoriesType=Blank&hairColor=Black&facialHairType=Blank&clotheType=Hoodie&clotheColor=Blue03&eyeType=Default&eyebrowType=Default&mouthType=Smile&skinColor=DarkBrown"
 ]
+from authlib.integrations.flask_client import OAuth
+from flask import redirect, url_for, session
+import uuid
+
+oauth = OAuth(current_app)
+
+# Register OAuth apps
+oauth.register(
+    name='google',
+    client_id=os.getenv("CLIENT_ID"),
+    client_secret=os.getenv("CLIENT_SECRET"),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={
+        'scope': 'openid email profile'
+    }
+)
+
+
+oauth.register(
+    name='github',
+    client_id=os.getenv("GITHUB_CLIENT_ID"),
+    client_secret=os.getenv("GITHUB_CLIENT_SECRET"),
+    access_token_url='https://github.com/login/oauth/access_token',
+    authorize_url='https://github.com/login/oauth/authorize',
+    api_base_url='https://api.github.com/',
+    userinfo_endpoint='https://api.github.com/user',
+    client_kwargs={'scope': 'user:email'},
+)
 
 @auth_bp.route("/signup", methods=["POST"])
 def signup():
@@ -153,3 +181,71 @@ def edit_profile():
         print("Error:", e)  # Print the error to the Flask console
         return jsonify({"error": "An error occurred", "details": str(e)}), 500
     
+
+
+@auth_bp.route("/login/google")
+def login_google():
+    redirect_uri = url_for("auth.authorize_google", _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+@auth_bp.route("/authorize/google")
+def authorize_google():
+    token = oauth.google.authorize_access_token()
+
+    # ✅ Get user info via Google’s userinfo endpoint
+    resp = oauth.google.get("https://www.googleapis.com/oauth2/v1/userinfo")
+  
+  
+    user_info = resp.json()
+
+    email = user_info.get("email")
+    username = user_info.get("name") or email.split("@")[0]
+    picture = user_info.get("picture")
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        user = User(
+            username=username,
+            email=email,
+            password=str(uuid.uuid4()),
+            profile_picture=picture or PREDEFINED_PROFILE_PICTURES[0]
+        )
+        db.session.add(user)
+        db.session.commit()
+
+    access_token = create_access_token(identity=str(user.id))
+    response = make_response(redirect("http://localhost:5173/storage-overview"))
+    response.set_cookie("access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False)
+    return response
+
+
+@auth_bp.route("/login/github")
+def login_github():
+    redirect_uri = url_for("auth.authorize_github", _external=True)
+    return oauth.github.authorize_redirect(redirect_uri)
+
+@auth_bp.route("/authorize/github")
+def authorize_github():
+    token = oauth.github.authorize_access_token()
+    user_info = oauth.github.get("user").json()
+    email_resp = oauth.github.get("user/emails").json()
+    email = next((e["email"] for e in email_resp if e["primary"]), None)
+
+    username = user_info.get("login")
+    picture = user_info.get("avatar_url")
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        user = User(
+            username=username,
+            email=email,
+            password=str(uuid.uuid4()),  # random dummy password
+            profile_picture=picture or PREDEFINED_PROFILE_PICTURES[0]
+        )
+        db.session.add(user)
+        db.session.commit()
+
+    access_token = create_access_token(identity=str(user.id))
+    response = make_response(redirect("http://localhost:5173/dashboard"))  # Adjust frontend URL
+    response.set_cookie("access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False)
+    return response

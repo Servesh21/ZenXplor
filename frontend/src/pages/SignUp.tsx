@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { FaGoogle, FaFacebook, FaEnvelope, FaLock, FaUser } from "react-icons/fa";
+import { FaGoogle, FaGithub, FaEnvelope, FaLock, FaUser } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
-import { useSignIn } from "@clerk/clerk-react";
+
 import Cookies from "js-cookie";
 
 interface User {
@@ -26,7 +26,7 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
   const [activeField, setActiveField] = useState<string | null>(null);
 
   const navigate = useNavigate();
-  const { signIn, isLoaded: signInLoaded } = useSignIn();
+
 
   // Helper functions for validation
   const validateEmail = (email: string): boolean => {
@@ -39,39 +39,15 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
   };
 
   // Google Authentication via Clerk - Unchanged logic
-  const handleGoogleAuth = async () => {
-    try {
-      if (!signInLoaded) return;
-      setIsLoading(true);
-      await signIn.authenticateWithRedirect({
-        strategy: "oauth_google",
-        redirectUrl: "/oauth-callback",
-        redirectUrlComplete: "/dashboard",
-      });
-    } catch (error) {
-      setError("Google Authentication Failed. Please try again.");
-      console.error("Google Authentication Error:", error);
-      setIsLoading(false);
-    }
+  const handleGoogleOAuth = () => {
+    setIsLoading(true);
+    window.location.href = "http://localhost:5000/auth/login/google";
   };
 
-  // Facebook Authentication via Clerk - Unchanged logic
-  const handleFacebookAuth = async () => {
-    try {
-      if (!signInLoaded) return;
-      setIsLoading(true);
-      await signIn.authenticateWithRedirect({
-        strategy: "oauth_facebook",
-        redirectUrl: "/oauth-callback",
-        redirectUrlComplete: "/dashboard",
-      });
-    } catch (error) {
-      setError("Facebook Authentication Failed. Please try again.");
-      console.error("Facebook Authentication Error:", error);
-      setIsLoading(false);
-    }
+  const handleGithubOAuth = () => {
+    setIsLoading(true);
+    window.location.href = "http://localhost:5000/auth/login/github";
   };
-
   // Handle Login - Unchanged logic
   const handleLogin = async () => {
     try {
@@ -268,22 +244,22 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
           <div className="space-y-6">
             {/* Social Login Buttons */}
             <div className="grid grid-cols-2 gap-4">
-              <button
-                onClick={handleGoogleAuth}
-                disabled={isLoading}
-                className="flex items-center justify-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
+            <button
+              onClick={handleGoogleOAuth}
+              disabled={isLoading}
+              className="flex items-center justify-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
                 <FaGoogle className="text-red-500" />
                 <span className="font-medium">Google</span>
               </button>
               
               <button
-                onClick={handleFacebookAuth}
-                disabled={isLoading}
-                className="flex items-center justify-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                <FaFacebook className="text-blue-600" />
-                <span className="font-medium">Facebook</span>
+              onClick={handleGithubOAuth}
+              disabled={isLoading}
+              className="flex items-center justify-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+                <FaGithub className="text-white-500 " />
+                <span className="font-medium">Github</span>
               </button>
             </div>
             

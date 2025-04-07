@@ -73,6 +73,7 @@ const Homepage: React.FC = () => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 0.6 }}
         transition={{ delay: 1, duration: 1 }}
+        
         className="absolute inset-0 pointer-events-none overflow-hidden"
       >
         <motion.div 

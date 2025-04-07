@@ -728,42 +728,43 @@ def get_index_status():
 @jwt_required()
 def search_files():
     """Search files with fuzzy matching, prefix-based search, and pagination."""
-    
+
     if not check_elasticsearch():
         return jsonify({"error": "Search service unavailable"}), 500
 
     user_id = get_jwt_identity()
     query = request.args.get("q", "").strip().lower()
-    limit = request.args.get("limit", 10, type=int)  # Default: 10 results per page
-    offset = request.args.get("offset", 0, type=int)  # Default: Start from 0
+    limit = request.args.get("limit", 10, type=int)
+    offset = request.args.get("offset", 0, type=int)
 
-    # Get filters for service and file type
-    service_filter = request.args.get("service", "").lower()  # 'local', 'google_drive', 'dropbox'
-    filetype_filter = request.args.get("filetype", "").lower()  # 'pdf', 'docx', etc.
+    service_filter = request.args.get("service", "").lower()
+    filetype_filter = request.args.get("filetype", "").lower()
 
     if not query:
         return jsonify({"error": "Search query is required"}), 400
 
     results = []
+    seen_filepaths = set()  # To avoid duplicates
+    remaining_limit = limit
 
-    # 1️⃣ **Prefix + Fuzzy Search in Elasticsearch (Local Storage)**
+    # 1️⃣ Elasticsearch Search
     try:
         es_query = {
             "query": {
                 "bool": {
                     "should": [
-                        { 
-                            "match": { 
-                                "filename": { 
-                                    "query": query, 
-                                    "operator": "and",  # This ensures that all search terms must appear
-                                    "fuzziness": "AUTO" 
+                        {
+                            "match": {
+                                "filename": {
+                                    "query": query,
+                                    "operator": "and",
+                                    "fuzziness": "AUTO"
                                 }
                             }
                         }
                     ],
                     "filter": [
-                        { "term": { "user_id": user_id } }
+                        {"term": {"user_id": user_id}}
                     ]
                 }
             },
@@ -771,60 +772,69 @@ def search_files():
             "size": limit
         }
 
-
-        # Add service filter for Elasticsearch (local or cloud)
         if service_filter and service_filter != "local":
             es_query["query"]["bool"]["filter"].append({
-                "term": { "storage_type": service_filter }  # Google Drive or Dropbox filter
+                "term": {"storage_type": service_filter}
             })
-        
-        # Add filetype filter for Elasticsearch
+
         if filetype_filter:
             es_query["query"]["bool"]["filter"].append({
-                "term": { "filetype": filetype_filter }  # Filter by filetype
+                "term": {"filetype": filetype_filter}
             })
 
         es_results = es.search(index="file_index", body=es_query)
-        results.extend([hit["_source"] for hit in es_results["hits"]["hits"]])
+        es_hits = [hit["_source"] for hit in es_results["hits"]["hits"]]
+
+        for hit in es_hits:
+            path = hit.get("filepath") or hit.get("cloud_file_id")
+            if path and path not in seen_filepaths:
+                results.append(hit)
+                seen_filepaths.add(path)
+
+        remaining_limit = limit - len(results)
+
     except Exception as e:
         logging.error(f"Elasticsearch search error: {str(e)}")
 
-    # 2️⃣ **Prefix + Fuzzy Search in Indexed DB (Google Drive + Dropbox)**
-    with current_app.app_context():
-        session = scoped_session(sessionmaker(bind=db.engine))
+    # 2️⃣ DB Fallback only if offset is 0 and results are insufficient
+    if offset == 0 and remaining_limit > 0:
+        with current_app.app_context():
+            session = scoped_session(sessionmaker(bind=db.engine))
 
-        # Cloud file filters
-        query_filters = [IndexedFile.user_id == user_id, IndexedFile.filename.ilike(f"%{query}%")]  # Prefix + fuzzy match
+            query_filters = [IndexedFile.user_id == user_id]
+            if query:
+                query_filters.append(IndexedFile.filename.ilike(f"%{query}%"))
+            if service_filter:
+                query_filters.append(IndexedFile.storage_type == service_filter)
+            if filetype_filter:
+                query_filters.append(IndexedFile.filetype == filetype_filter)
 
-        # Apply service filter (cloud storage types)
-        if service_filter:
-            query_filters.append(IndexedFile.storage_type == service_filter)
+            cloud_files = (
+                session.query(IndexedFile)
+                .filter(*query_filters)
+                .limit(remaining_limit)
+                .all()
+            )
 
-        # Apply filetype filter
-        if filetype_filter:
-            query_filters.append(IndexedFile.filetype == filetype_filter)
+            session.remove()
 
-        cloud_files = session.query(IndexedFile).filter(*query_filters).offset(offset).limit(limit).all()
+            for file in cloud_files:
+                path = file.filepath or file.cloud_file_id
+                if path and path not in seen_filepaths:
+                    results.append({
+                        "filename": file.filename,
+                        "cloud_file_id": file.cloud_file_id,
+                        "storage_type": file.storage_type,
+                        "filepath": file.filepath
+                    })
+                    seen_filepaths.add(path)
 
-        session.remove()
-
-        results.extend([
-            {
-                "filename": file.filename,
-                "cloud_file_id": file.cloud_file_id,
-                "storage_type": file.storage_type,
-                "filepath": file.filepath
-            } for file in cloud_files
-        ])
-
-    # Return paginated results
     return jsonify({
         "results": results,
-        "offset": offset,
+        "offset": offset + len(results),
         "limit": limit,
-        "has_more": len(results) == limit  # Check if more results exist
+        "has_more": len(results) == limit
     }), 200
-
 
 
 @search_bp.route("/open-file", methods=["POST"])
