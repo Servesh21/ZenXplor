@@ -187,7 +187,7 @@ const FileSearch: React.FC = () => {
         return;
       }
       
-      setError("Failed to download file");
+      // setError("Failed to download file");
     }
   };
 
@@ -212,7 +212,7 @@ const FileSearch: React.FC = () => {
         return;
       }
       
-      setError("Failed to open file location");
+      // setError("Failed to open file location");
     }
   };
 

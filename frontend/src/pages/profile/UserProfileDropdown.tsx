@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { UserCircle, Settings, LogOut, HelpCircle, Folder, Camera } from "lucide-react";
+import { UserCircle,  LogOut,  Folder, Camera } from "lucide-react";
 
 
 const predefinedImages = [

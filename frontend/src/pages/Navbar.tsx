@@ -77,7 +77,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, setUser, darkMode, setDarkMode })
       <div className="flex items-center">
         <MobileMenuToggle isOpen={isOpen} setIsOpen={setIsOpen} />
         <div className="text-xl font-bold ml-3 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-          Universal File Search
+          ZenXplor
         </div>
       </div>
 
