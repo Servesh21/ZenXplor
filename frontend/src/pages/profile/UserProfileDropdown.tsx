@@ -176,7 +176,7 @@ const UserProfileDropdown: React.FC<{
                   <span>Storage Access</span>
                 </Link>
                 
-                <Link to="/settings" className="flex items-center px-4 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
+                {/* <Link to="/settings" className="flex items-center px-4 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
                   <Settings size={18} className="mr-3 text-blue-500 dark:text-blue-400" /> 
                   <span>Settings</span>
                 </Link>
@@ -184,7 +184,7 @@ const UserProfileDropdown: React.FC<{
                 <Link to="/help" className="flex items-center px-4 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
                   <HelpCircle size={18} className="mr-3 text-blue-500 dark:text-blue-400" /> 
                   <span>Help Center</span>
-                </Link>
+                </Link> */}
               </div>
 
               <div className="border-t border-gray-100 dark:border-gray-700 p-4">

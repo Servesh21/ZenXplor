@@ -317,7 +317,7 @@ const FileSearch: React.FC = () => {
                     {file.filename}
                   </p>
                   {file.filepath && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs sm:max-w-md">
                       {file.filepath}
                     </p>
                   )}
