@@ -20,6 +20,7 @@ const CloudStorageAccounts = () => {
   const [userId, setUserId] = useState<number | null>(null);
 
   useEffect(() => {
+    
     const fetchUserIdAndAccounts = async () => {
       try {
         const userResponse = await axios.get(`${BACKEND_URL}/auth/profile`, { withCredentials: true });
@@ -31,7 +32,7 @@ const CloudStorageAccounts = () => {
         }
 
         setUserId(id);
-
+        userId
         const accountsResponse = await axios.get(`${BACKEND_URL}/cloud-accounts/${id}`, {
           withCredentials: true,
         });
