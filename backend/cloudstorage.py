@@ -230,15 +230,21 @@ def get_cloud_accounts(user_id):
 @cloud_storage_bp.route("/cloud-accounts/<account_id>", methods=["DELETE"])
 def delete_cloud_account(account_id):
     try:
+        # Fetch the cloud account
         account = CloudStorageAccount.query.get(account_id)
         if not account:
             return jsonify({"error": "Account not found"}), 404
 
+        # Delete all files associated with this cloud account
+        IndexedFile.query.filter_by(account_id=account_id).delete()
+
+        # Delete the cloud account itself
         db.session.delete(account)
         db.session.commit()
 
-        return jsonify({"message": "Cloud account deleted successfully!"}), 200
+        return jsonify({"message": "Cloud account and related indexed files deleted successfully!"}), 200
 
     except Exception as e:
         print(f"Error deleting cloud account: {e}")
+        db.session.rollback()
         return jsonify({"error": "Internal Server Error"}), 500

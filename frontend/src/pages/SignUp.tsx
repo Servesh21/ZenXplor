@@ -2,8 +2,6 @@ import React, { useState, useEffect } from "react";
 import { FaGoogle, FaGithub, FaEnvelope, FaLock, FaUser } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 
-import Cookies from "js-cookie";
-
 interface User {
   username: string;
   email: string;
@@ -12,9 +10,10 @@ interface User {
 
 interface AuthProps {
   setUser: (user: User | null) => void;
+  user: User | null;  // Added user prop to check authentication state
 }
 
-const Auth: React.FC<AuthProps> = ({ setUser }) => {
+const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
   const [isLogin, setIsLogin] = useState<boolean>(true);
   const [username, setUsername] = useState<string>("");
   const [email, setEmail] = useState<string>("");
@@ -27,6 +26,13 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
 
   const navigate = useNavigate();
 
+  // Check if user is already authenticated using the user state
+  useEffect(() => {
+    if (user) {
+      // User is already authenticated, redirect to storage-overview
+      navigate("/storage-overview");
+    }
+  }, [user, navigate]);
 
   // Helper functions for validation
   const validateEmail = (email: string): boolean => {
@@ -38,7 +44,7 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
     return password.length >= 8;
   };
 
-  // Google Authentication via Clerk - Unchanged logic
+  // Google Authentication
   const handleGoogleOAuth = () => {
     setIsLoading(true);
     window.location.href = "http://localhost:5000/auth/login/google";
@@ -48,7 +54,8 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
     setIsLoading(true);
     window.location.href = "http://localhost:5000/auth/login/github";
   };
-  // Handle Login - Unchanged logic
+  
+  // Handle Login
   const handleLogin = async () => {
     try {
       setIsLoading(true);
@@ -66,12 +73,6 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
           email: data.email, 
           profile_picture: data.profile_picture || ""
         });
-  
-        Cookies.set("access_token_cookie", JSON.stringify({ 
-          username: data.username, 
-          email: data.email, 
-          profile_picture: data.profile_picture || "" 
-        }), { expires: 7, secure: false, sameSite: "Lax" });
   
         setSuccess("Login successful!");
         setTimeout(() => navigate("/storage-overview"), 1000);
@@ -106,7 +107,7 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
       const response = await fetch("http://localhost:5000/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",  // Ensure cookies are sent/received
+        credentials: "include",
         body: JSON.stringify({ username, email, password }),
       });
   
@@ -148,7 +149,7 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
           </div>
           
           <div className="z-10 mb-12">
-            <h1 className="text-4xl font-bold text-white mb-2">Universal File Search</h1>
+            <h1 className="text-4xl font-bold text-white mb-2">ZenXplor</h1>
             <p className="text-blue-200 text-lg">Search your files across desktop and cloud, all in one place</p>
           </div>
           
@@ -244,21 +245,21 @@ const Auth: React.FC<AuthProps> = ({ setUser }) => {
           <div className="space-y-6">
             {/* Social Login Buttons */}
             <div className="grid grid-cols-2 gap-4">
-            <button
-              onClick={handleGoogleOAuth}
-              disabled={isLoading}
-              className="flex items-center justify-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
+              <button
+                onClick={handleGoogleOAuth}
+                disabled={isLoading}
+                className="flex items-center justify-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
                 <FaGoogle className="text-red-500" />
                 <span className="font-medium">Google</span>
               </button>
               
               <button
-              onClick={handleGithubOAuth}
-              disabled={isLoading}
-              className="flex items-center justify-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-                <FaGithub className="text-white-500 " />
+                onClick={handleGithubOAuth}
+                disabled={isLoading}
+                className="flex items-center justify-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                <FaGithub className="text-gray-800 dark:text-white" />
                 <span className="font-medium">Github</span>
               </button>
             </div>

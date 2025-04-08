@@ -43,7 +43,7 @@ const App: React.FC = () => {
             <Routes>
               <Route path="/" element={<Homepage />} />
               <Route path="/file-search" element={<FileSearch />} />
-              <Route path="/login" element={<SignUp setUser={setUser} />} /> 
+              <Route path="/login" element={<SignUp user={user} setUser={setUser} />} /> 
               <Route path="/storage-overview" element={<StorageOverview />} />
               <Route path="/oauth-callback" element={<SignInCallback />} />
               <Route path="/profile" element={<Profile darkMode={darkMode} user={user} setUser={setUser} />} />

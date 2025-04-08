@@ -246,6 +246,30 @@ def authorize_github():
         db.session.commit()
 
     access_token = create_access_token(identity=str(user.id))
-    response = make_response(redirect("http://localhost:5173/dashboard"))  # Adjust frontend URL
+    response = make_response(redirect("http://localhost:5173/storage-overview"))  # Adjust frontend URL
     response.set_cookie("access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False)
     return response
+
+@auth_bp.route("/check-auth", methods=["GET"])
+def check_auth():
+    try:
+        verify_jwt_in_request()  # Checks the JWT in cookie
+        user_id = get_jwt_identity()
+
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"authenticated": False}), 200
+
+        return jsonify({
+            "authenticated": True,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "profile_picture": user.profile_picture
+            }
+        }), 200
+    except Exception as e:
+        print("Auth check error:", e)
+        return jsonify({"authenticated": False}), 200
+
