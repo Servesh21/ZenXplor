@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { FaGoogle, FaGithub, FaEnvelope, FaLock, FaUser } from "react-icons/fa";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 interface User {
   username: string;
@@ -435,9 +435,9 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
           
           <p className="mt-8 text-center text-sm text-gray-600 dark:text-gray-400">
             By {isLogin ? "signing in" : "creating an account"}, you agree to our{" "}
-            <a href="#" className="text-blue-600 hover:underline dark:text-blue-400">Terms of Service</a>{" "}
+            <Link to="/terms" className="text-blue-600 hover:underline dark:text-blue-400">Terms of Service</Link>{" "}
             and{" "}
-            <a href="#" className="text-blue-600 hover:underline dark:text-blue-400">Privacy Policy</a>.
+            <Link to="/privacy" className="text-blue-600 hover:underline dark:text-blue-400">Privacy Policy</Link>.
           </p>
         </div>
       </div>

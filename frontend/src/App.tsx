@@ -8,6 +8,8 @@ import StorageOverview from "./pages/profile/StorageOverview";
 import SignInCallback from "./SignInCallback";
 import Profile from "./pages/profile/Profile";
 import Settings from "./pages/profile/Settings";
+import TermsOfService from "./pages/TermsOfService";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Footer from "./pages/Footer";
 import { ClerkProvider } from "@clerk/clerk-react";
 import "./assets/index.css";
@@ -48,6 +50,8 @@ const App: React.FC = () => {
               <Route path="/oauth-callback" element={<SignInCallback />} />
               <Route path="/profile" element={<Profile darkMode={darkMode} user={user} setUser={setUser} />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/terms" element={<TermsOfService darkMode={darkMode} />} />
+              <Route path="/privacy" element={<PrivacyPolicy darkMode={darkMode} />} />
             </Routes>
           </main>
           <Footer />
