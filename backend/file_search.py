@@ -348,14 +348,16 @@ def sync_dropbox(account_id, user_id):
                     filetype=file_type,  # Save file extension as filetype
                     cloud_file_id=file.id,
                     mime_type=file.content_hash,  # This is a unique identifier for the file, not the MIME type
-                    last_modified=last_modified
+                    last_modified=last_modified,
+                    is_favorite=False  # Default to False for new entries
                 ).on_conflict_do_update(
                     index_elements=["filepath"],
                     set_={
                         "filename": file.name,
                         "mime_type": file.content_hash,
                         "filetype": file_type,  # Update filetype based on file extension
-                        "last_modified": last_modified
+                        "last_modified": last_modified,
+                        "is_favorite": False  # Default to False for updated entries
                     }
                 )
 
@@ -415,16 +417,20 @@ def index_files_worker(user_id, base_directory):
                         filename=folder,
                         filepath=folder_path,
                         is_folder=True,
-                        filetype="folder"  # Set filetype to 'folder' for directories
+                        filetype="folder",
+                        storage_type="local",  # Set storage type to 'local' for local files
+                        is_favorite=False  # Default to False for new entries
                     ))
                     indexed_items.append({
-                        "id": f"{user_id}_{folder_path}",
+                        "id": f"{folder_path}",
                         "user_id": user_id,
                         "filename": folder,
                         "filename_ngram": folder.lower(),  # 👈 Add ngram field for prefix search
                         "filepath": folder_path,
                         "is_folder": True,
-                        "filetype": "folder"  # Set filetype to 'folder' for directories
+                        "filetype": "folder",
+                        "storage_type": "local",  # Set storage type to 'local' for local files
+                        "is_favorite": False  # Default to False for new entries
                     })
 
                 # Index Files
@@ -447,17 +453,21 @@ def index_files_worker(user_id, base_directory):
                         filename=file,
                         filepath=file_path,
                         is_folder=False,
-                        filetype=file_extension  # Save filetype (extension)
+                        filetype=file_extension,  # Save filetype (extension)
+                        storage_type="local",  # Set storage type to 'local' for local files
+                        is_favorite=False  # Default to False for new entries
                     ))
 
                     indexed_items.append({
-                        "id": f"{user_id}_{file_path}",
+                        "id": f"{file_path}",
                         "user_id": user_id,
                         "filename": file,
                         "filename_ngram": file.lower(),  # 👈 Add ngram field for prefix search
                         "filepath": file_path,
                         "is_folder": False,
-                        "filetype": file_extension  # Include filetype (extension) for files
+                        "filetype": file_extension,  # Include filetype (extension) for files
+                        "storage_type": "local" , # Set storage type to 'local' for local files
+                        "is_favorite": False  # Default to False for new entries
                     })
 
             # Commit new entries to the database
@@ -500,6 +510,9 @@ def get_file_type_from_mime(mime_type):
         "application/zip": "archive",
         "audio/mpeg": "audio",
         "video/mp4": "video",
+        "application/vnd.google-apps.spreadsheet": "spreadsheet",
+        "application/vnd.jgraph.mxfile": "diagram",
+        "application/vnd.google-apps.folder": "folder",
         # Add more mappings as needed
     }
     return mime_type_mapping.get(mime_type, "folder")  # Default to 'unknown' if not found
@@ -544,6 +557,7 @@ def sync_google_drive(account_id, user_id):
 
                 # Use the worker function to get the simplified file type
                 file_type = get_file_type_from_mime(mime_type)
+                print(f"File Type: {file_type}")  # Debugging log
 
                 # Prepare the insert statement with ON CONFLICT handling
                 stmt = insert(IndexedFile).values(
@@ -555,14 +569,16 @@ def sync_google_drive(account_id, user_id):
                     filetype=file_type,  # Correct column name
                     cloud_file_id=file_id,
                     mime_type=mime_type,
-                    last_modified=last_modified
+                    last_modified=last_modified,
+                    is_favorite=False  # Default to False for new entries
                 ).on_conflict_do_update(
                     index_elements=["filepath"],  # This ensures the filepath uniqueness constraint is respected
                     set_={
                         "filename": file["name"],
                         "mime_type": mime_type,
                         "filetype": file_type,  # Correct column name
-                        "last_modified": last_modified
+                        "last_modified": last_modified,
+                        "is_favorite": False  # Default to False for updated entries
                     }
                 )
                 
@@ -828,6 +844,7 @@ def search_files():
             if key not in seen_keys:
                 all_results.append(doc)
                 seen_keys.add(key)
+            
 
     except Exception as e:
         logging.error(f"Elasticsearch error: {str(e)}")
@@ -857,7 +874,8 @@ def search_files():
                         "filename": file.filename,
                         "cloud_file_id": file.cloud_file_id,
                         "storage_type": file.storage_type,
-                        "filepath": file.filepath
+                        "filepath": file.filepath,
+                        "is_favorite": file.is_favorite,
                     })
                     seen_keys.add(key)
     except Exception as e:
@@ -866,6 +884,7 @@ def search_files():
     # 3️⃣ Pagination after merging
     total_results = len(all_results)
     paginated = all_results[offset:offset + limit]
+    print(f"Total results: {total_results}, Paginated results: {len(paginated)}")  # Debugging log
     has_more = offset + limit < total_results
 
     return jsonify({
@@ -1075,4 +1094,24 @@ def download_file():
         return jsonify({"error": f"Failed to download file from Google Drive: {str(e)}"}), 500
     
 
+
+@search_bp.route('/<string:file_path>/favorite', methods=['POST'])
+@jwt_required()
+def toggle_favorite(file_path):
+    user_id = get_jwt_identity()
+    file = IndexedFile.query.filter_by(filepath=file_path, user_id=user_id).first()
+
+    
+    if not file:
+        return jsonify({"error": "File not found"}), 404
+
+    # data = request.get_json()
+    # is_favorite = data.get('is_favorite')
+
+
+
+    file.is_favorite = not file.is_favorite
+    db.session.commit()
+
+    return jsonify({"message": "Favorite status updated", "file": file.to_dict()})
 

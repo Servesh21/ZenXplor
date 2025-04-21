@@ -79,30 +79,34 @@ class IndexedFile(db.Model):
     content_hash = db.Column(db.String(64), nullable=True)  # Optional for text search
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # Timestamp
     
+    is_favorite = db.Column(db.Boolean, nullable=False, default=False)
+
+    
     # New fields for cloud storage
     storage_type = db.Column(db.String(20), nullable=False, default="local")  # "local", "google_drive", etc.
     cloud_file_id = db.Column(db.String(1024), nullable=True, unique=True)  # Google Drive file ID, etc.
     mime_type = db.Column(db.String(1024), nullable=True)  # For cloud storage files
     last_modified = db.Column(db.DateTime, nullable=True)  # Last modified timestamp (for cloud files)
 
+
     # Relationship
     account = db.relationship('CloudStorageAccount', backref='indexed_files', lazy=True)
 
     def to_dict(self):
-        """Return dictionary representation of the indexed file."""
         return {
-            "id": self.id,
-            "user_id": self.user_id,
-            "account_id": self.account_id,
-            "filename": self.filename,
-            "filepath": self.filepath,
-            "filetype": self.filetype,
-            "is_folder": self.is_folder,
-            "storage_type": self.storage_type,
-            "cloud_file_id": self.cloud_file_id,
-            "mime_type": self.mime_type,
-            "last_modified": self.last_modified.strftime("%B %d, %Y") if self.last_modified else None,
-            "created_at": self.created_at.strftime("%B %d, %Y"),
+        "id": self.id,
+        "user_id": self.user_id,
+        "account_id": self.account_id,
+        "filename": self.filename,
+        "filepath": self.filepath,
+        "filetype": self.filetype,
+        "is_folder": self.is_folder,
+        "storage_type": self.storage_type,
+        "cloud_file_id": self.cloud_file_id,
+        "mime_type": self.mime_type,
+        "last_modified": self.last_modified.strftime("%B %d, %Y") if self.last_modified else None,
+        "created_at": self.created_at.strftime("%B %d, %Y"),
+        "is_favorite": self.is_favorite  # New field
         }
 
 
