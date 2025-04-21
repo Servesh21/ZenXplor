@@ -70,7 +70,7 @@ const Profile: React.FC<{
   };
 
   return (
-    <div className="max-w-xl mx-auto p-8 rounded-2xl shadow-xl mt-10 bg-white text-gray-900 border border-gray-200">
+    <div className="max-w-xl mx-auto p-8 rounded-2xl shadow-xl mt-10 bg-white text-gray-900 border border-gray-200 dark:bg-gray-800 dark:text-white dark:border-gray-700 transition-all duration-300">
       <div className="flex items-center justify-between mb-8">
         <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 text-transparent bg-clip-text">Your Profile</h2>
         {!isEditMode && user && (
@@ -174,7 +174,7 @@ const Profile: React.FC<{
               <div className="flex space-x-4 pt-4">
                 <button 
                   onClick={() => setIsEditMode(false)} 
-                  className="flex-1 py-3 px-4 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="flex-1 py-3 px-4 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors dark:hover:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
                 >
                   Cancel
                 </button>

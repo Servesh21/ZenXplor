@@ -723,17 +723,16 @@ def get_index_status():
     status = indexing_status.get(user_id, "not_started")
     return jsonify({"status": status})
 
-
 @search_bp.route("/search-files", methods=["GET"])
 @jwt_required()
 def search_files():
-    """Search files with fuzzy matching, prefix-based search, and pagination."""
+    """Search files with fuzzy matching and pagination from both Elasticsearch and DB."""
 
     if not check_elasticsearch():
         return jsonify({"error": "Search service unavailable"}), 500
 
     user_id = get_jwt_identity()
-    query = request.args.get("q", "").strip().lower()
+    query = request.args.get("q", "").strip()
     limit = request.args.get("limit", 10, type=int)
     offset = request.args.get("offset", 0, type=int)
 
@@ -743,33 +742,72 @@ def search_files():
     if not query:
         return jsonify({"error": "Search query is required"}), 400
 
-    results = []
-    seen_filepaths = set()  # To avoid duplicates
-    remaining_limit = limit
+    all_results = []
+    seen_keys = set()
 
-    # 1️⃣ Elasticsearch Search
+    def get_unique_key(storage_type, path):
+        return f"{storage_type}::{path}"
+
+    # 1️⃣ Elasticsearch results
     try:
+        should_clauses = []
+
+        if "*" in query:
+            should_clauses.append({
+                "wildcard": {
+                    "filename": {
+                        "value": query,
+                        "case_insensitive": True
+                    }
+                }
+            })
+        else:
+            should_clauses = [
+                {
+                    "match": {
+                        "filename": {
+                            "query": query,
+                            "fuzziness": "AUTO"
+                        }
+                    }
+                },
+                {
+                    "wildcard": {
+                        "filename": {
+                            "value": f"{query}*",
+                            "case_insensitive": True
+                        }
+                    }
+                },
+                {
+                    "wildcard": {
+                        "filename": {
+                            "value": f"*{query}",
+                            "case_insensitive": True
+                        }
+                    }
+                },
+                {
+                    "wildcard": {
+                        "filename": {
+                            "value": f"*{query}*",
+                            "case_insensitive": True
+                        }
+                    }
+                }
+            ]
+
         es_query = {
             "query": {
                 "bool": {
-                    "should": [
-                        {
-                            "match": {
-                                "filename": {
-                                    "query": query,
-                                    "operator": "and",
-                                    "fuzziness": "AUTO"
-                                }
-                            }
-                        }
-                    ],
+                    "should": should_clauses,
+                    "minimum_should_match": 1,
                     "filter": [
                         {"term": {"user_id": user_id}}
                     ]
                 }
             },
-            "from": offset,
-            "size": limit
+            "size": 100  # Get max possible, pagination happens after merge
         }
 
         if service_filter and service_filter != "local":
@@ -783,57 +821,58 @@ def search_files():
             })
 
         es_results = es.search(index="file_index", body=es_query)
-        es_hits = [hit["_source"] for hit in es_results["hits"]["hits"]]
-
-        for hit in es_hits:
-            path = hit.get("filepath") or hit.get("cloud_file_id")
-            if path and path not in seen_filepaths:
-                results.append(hit)
-                seen_filepaths.add(path)
-
-        remaining_limit = limit - len(results)
+        for hit in es_results["hits"]["hits"]:
+            doc = hit["_source"]
+            path = doc.get("filepath") or doc.get("cloud_file_id")
+            key = get_unique_key(doc.get("storage_type"), path)
+            if key not in seen_keys:
+                all_results.append(doc)
+                seen_keys.add(key)
 
     except Exception as e:
-        logging.error(f"Elasticsearch search error: {str(e)}")
+        logging.error(f"Elasticsearch error: {str(e)}")
 
-    # 2️⃣ DB Fallback only if offset is 0 and results are insufficient
-    if offset == 0 and remaining_limit > 0:
+    # 2️⃣ DB fallback (always run alongside ES)
+    try:
         with current_app.app_context():
             session = scoped_session(sessionmaker(bind=db.engine))
 
-            query_filters = [IndexedFile.user_id == user_id]
+            filters = [IndexedFile.user_id == user_id]
+
             if query:
-                query_filters.append(IndexedFile.filename.ilike(f"%{query}%"))
+                filters.append(IndexedFile.filename.ilike(f"%{query.strip('*')}%"))
             if service_filter:
-                query_filters.append(IndexedFile.storage_type == service_filter)
+                filters.append(IndexedFile.storage_type == service_filter)
             if filetype_filter:
-                query_filters.append(IndexedFile.filetype == filetype_filter)
+                filters.append(IndexedFile.filetype == filetype_filter)
 
-            cloud_files = (
-                session.query(IndexedFile)
-                .filter(*query_filters)
-                .limit(remaining_limit)
-                .all()
-            )
-
+            db_files = session.query(IndexedFile).filter(*filters).all()
             session.remove()
 
-            for file in cloud_files:
+            for file in db_files:
                 path = file.filepath or file.cloud_file_id
-                if path and path not in seen_filepaths:
-                    results.append({
+                key = get_unique_key(file.storage_type, path)
+                if key not in seen_keys:
+                    all_results.append({
                         "filename": file.filename,
                         "cloud_file_id": file.cloud_file_id,
                         "storage_type": file.storage_type,
                         "filepath": file.filepath
                     })
-                    seen_filepaths.add(path)
+                    seen_keys.add(key)
+    except Exception as e:
+        logging.error(f"DB fallback error: {str(e)}")
+
+    # 3️⃣ Pagination after merging
+    total_results = len(all_results)
+    paginated = all_results[offset:offset + limit]
+    has_more = offset + limit < total_results
 
     return jsonify({
-        "results": results,
-        "offset": offset + len(results),
+        "results": paginated,
+        "offset": offset + len(paginated),
         "limit": limit,
-        "has_more": len(results) == limit
+        "has_more": has_more
     }), 200
 
 

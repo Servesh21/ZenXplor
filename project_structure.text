@@ -1,0 +1,55 @@
+
+- backend
+  - .env
+  - app.py
+  - auth.py
+  - cloudstorage.py
+  - config.py
+  - docker-compose.yml
+  - dockerfile
+  - extensions.py
+  - file_search.py
+  - models.py
+  - requirements.txt
+- docker-compose.yml
+- frontend
+  - .env
+  - .gitignore
+  - dockerfile
+  - eslint.config.js
+  - index.html
+  - package-lock.json
+  - package.json
+  - public
+    - image.png
+  - README.md
+  - src
+    - App.css
+    - App.tsx
+    - assets
+      - index.css
+      - react.svg
+    - HelpChatbot.tsx
+    - index.css
+    - main.tsx
+    - pages
+      - FileSearch.tsx
+      - Footer.tsx
+      - Homepage.tsx
+      - Navbar.tsx
+      - PrivacyPolicy.tsx
+      - profile
+        - Profile.tsx
+        - Settings.tsx
+        - StorageOverview.tsx
+        - UserProfileDropdown.tsx
+      - SignUp.tsx
+      - TermsOfService.tsx
+      - TypingAnimation.tsx
+    - SignInCallback.tsx
+    - vite-env.d.ts
+  - tsconfig.app.json
+  - tsconfig.json
+  - tsconfig.node.json
+  - vite.config.ts
+- README.md
