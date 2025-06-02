@@ -155,7 +155,7 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
           
           <div className="z-10">
             <h2 className="text-3xl font-bold text-white mb-6">
-              {isLogin ? "Welcome back!" : "Join our community"}
+              {isLogin ? "Welcome back!" : "Join us!"}
             </h2>
             <p className="text-blue-100 text-lg max-w-md">
               {isLogin 
@@ -179,7 +179,7 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
                     <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
                   </svg>
                 </div>
-                <span>Personalized dashboard</span>
+                <span>Access your files from anywhere</span>
               </div>
               
               <div className="flex items-center text-blue-100">
@@ -188,7 +188,7 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
                     <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
                   </svg>
                 </div>
-                <span>Premium features available</span>
+                <span>Access to exclusive features</span>
               </div>
             </div>
           </div>
@@ -403,9 +403,7 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
             
             {isLogin && (
               <div className="flex justify-end">
-                <button className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
-                  Forgot password?
-                </button>
+
               </div>
             )}
             

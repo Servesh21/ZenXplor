@@ -29,7 +29,7 @@ def shutdown_executor(exception=None):
         executor.shutdown(wait=False)
 
 # Enable CORS for the entire app
-CORS(app, supports_credentials=True, origins=["http://localhost:5173"], 
+CORS(app, supports_credentials=True, origins=['http://localhost:5173'], 
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], 
      allow_headers=["Content-Type", "Authorization"])
 

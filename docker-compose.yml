@@ -28,8 +28,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: Servesh#21
       POSTGRES_DB: Universal_file_search
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 

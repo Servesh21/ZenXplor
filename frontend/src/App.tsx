@@ -13,6 +13,7 @@ import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Footer from "./pages/Footer";
 import { ClerkProvider } from "@clerk/clerk-react";
 import "./assets/index.css";
+import HelpChatbot from "./HelpChatbot";
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 const App: React.FC = () => {
@@ -52,7 +53,9 @@ const App: React.FC = () => {
               <Route path="/settings" element={<Settings />} />
               <Route path="/terms" element={<TermsOfService darkMode={darkMode} />} />
               <Route path="/privacy" element={<PrivacyPolicy darkMode={darkMode} />} />
+              
             </Routes>
+            <HelpChatbot />
           </main>
           <Footer />
         </div>

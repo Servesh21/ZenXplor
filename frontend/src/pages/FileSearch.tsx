@@ -44,11 +44,21 @@ const FileSearch: React.FC = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const LIMIT = 10;
-
-
-
-
-
+  useEffect(() => {
+    // Reset results when search criteria changes
+    setFiles([]);
+    setOffset(0);
+    setHasMore(true);
+  
+    const delaySearch = setTimeout(() => {
+      if (query.trim() || serviceFilter || fileTypeFilter) {
+        fetchFiles(query, 0);
+      }
+    }, 500);
+  
+    return () => clearTimeout(delaySearch);
+  }, [query, serviceFilter, fileTypeFilter]);
+  
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -107,17 +117,20 @@ const FileSearch: React.FC = () => {
   // Infinite scrolling observer
   const fileListRef = useRef<HTMLDivElement>(null);
   const lastFileRef = useCallback(
-    (node: HTMLLIElement | null) => {
+    (node: HTMLLIElement | HTMLDivElement | null) => {
       if (loading) return;
       if (observer.current) observer.current.disconnect();
+      
       observer.current = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting && hasMore) {
+            console.log("Last element is visible, loading more files...");
             fetchFiles(query, offset);
           }
         },
-        { root: fileListRef.current, threshold: 1 }
+        { threshold: 0.5 }
       );
+      
       if (node) observer.current.observe(node);
     },
     [loading, hasMore, query, offset]
@@ -232,7 +245,7 @@ const FileSearch: React.FC = () => {
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Ctrl+F to focus search
-    if (e.ctrlKey && e.key === 'a') {
+    if (e.ctrlKey && e.key === 'f') {
       e.preventDefault();
       searchInputRef.current?.focus();
     }
@@ -350,7 +363,7 @@ const FileSearch: React.FC = () => {
                 <input
                   ref={searchInputRef}
                   type="text"
-                  placeholder="Find files across all your storage... (Ctrl+F)"
+                  placeholder="Find files across all your storage... "
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onFocus={() => setSearchFocused(true)}
@@ -359,7 +372,11 @@ const FileSearch: React.FC = () => {
                 />
                 {query && (
                   <button
-                    onClick={() => setQuery("")}
+                    onClick={() => {
+                      setQuery("")
+                      setOffset(0);
+                      setFiles([]);
+                    }}
                     className="px-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                   >
                     <FaTimes size={18} />
@@ -511,7 +528,6 @@ const FileSearch: React.FC = () => {
               {files.length > 0 && (
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-500 dark:text-gray-400">
-                    Showing {Math.min(files.length, LIMIT)} of {files.length}
                   </span>
                   <button
                     onClick={() => setSortOrder(prev => prev === "name" ? "type" : prev === "type" ? "storage" : "name")}
@@ -532,18 +548,18 @@ const FileSearch: React.FC = () => {
               {sortedFiles.length > 0 ? (
                 viewMode === "list" ? (
                   <ul className="space-y-2">
-                    {sortedFiles.map((file, index) => (
-                      <motion.li
-                        key={file.id}
-                        ref={index === sortedFiles.length - 1 ? lastFileRef : null}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, delay: index * 0.05 }}
-                        className={`rounded-xl bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-all overflow-hidden ${
-                          selectedFile === file.id ? "ring-2 ring-blue-500" : ""
-                        }`}
-                        onClick={() => setSelectedFile(selectedFile === file.id ? null : file.id)}
-                      >
+{sortedFiles.map((file, index) => (
+  <motion.li
+    key={file.id}
+    ref={index === sortedFiles.length - 1 && hasMore ? lastFileRef : null}
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.3, delay: index * 0.05 }}
+    className={`rounded-xl bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-all overflow-hidden ${
+      selectedFile === file.id ? "ring-2 ring-blue-500" : ""
+    }`}
+    onClick={() => setSelectedFile(selectedFile === file.id ? null : file.id)}
+  >
                         <div className="p-4">
                           <div className="flex items-center gap-4">
                             <div className="p-3 rounded-lg bg-gray-100 dark:bg-gray-700 flex-shrink-0">
@@ -718,24 +734,31 @@ const FileSearch: React.FC = () => {
                         </div>
                       </motion.li>
                     ))}
+                    {loading && files.length > 0 && (
+                    <div className="flex justify-center py-6 mt-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+                      <span className="ml-2 text-gray-600 dark:text-gray-300">Loading more...</span>
+                    </div>
+                  )}
                   </ul>
+
                 ) : (
                   // Grid View
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {sortedFiles.map((file, index) => (
-                      <motion.div
-                        key={file.id}
-                        ref={index === sortedFiles.length - 1 ? lastFileRef : null}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, delay: index * 0.05 }}
-                        className={`bg-white dark:bg-gray-700 rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden cursor-pointer h-full flex flex-col ${
-                          selectedFile === file.id ? "ring-2 ring-blue-500" : ""
-                        }`}
-                        onClick={() => setSelectedFile(selectedFile === file.id ? null : file.id)}
-                      >
+{sortedFiles.map((file, index) => (
+  <motion.div
+    key={file.id}
+    ref={index === sortedFiles.length - 1 && hasMore ? lastFileRef : null}
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.3, delay: index * 0.05 }}
+    className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden cursor-pointer h-full flex flex-col ${
+      selectedFile === file.id ? "ring-2 ring-blue-500" : ""
+    }`}
+    onClick={() => setSelectedFile(selectedFile === file.id ? null : file.id)}
+  >
                         <div className="p-4 flex-1">
-                          <div className="flex justify-center items-center h-28 w-full bg-gray-50 dark:bg-gray-800 rounded-lg mb-3">
+                          <div className="flex justify-center items-center h-28 w-full bg-gray-50 dark:bg-gray-700 rounded-lg mb-3">
                             {getFileIcon(file.filepath, file.storage_type)}
                           </div>
                           

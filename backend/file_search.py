@@ -21,8 +21,7 @@ from datetime import datetime
 import dropbox
 from dropbox.exceptions import AuthError
 from sqlalchemy.dialects.postgresql import insert
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+
 import time
 from models import CloudStorageAccount
 import psutil
@@ -144,7 +143,7 @@ def auto_index_local_storage(app):
                     break  # ✅ Exit loop if Flask is shutting down
                 print(f"❌ Error in auto-indexing: {str(e)}")
 
-            time.sleep(3)  # ✅ Prevent excessive CPU usage
+            time.sleep(3600)  # ✅ Prevent excessive CPU usage
 
         print("🛑 Auto-indexing stopped.")
 
@@ -173,7 +172,7 @@ def auto_index_google_drive(app):
                     logging.error(f"❌ Google Drive indexing error for User {user_id}: {str(e)}")
 
             db.session.remove()  # ✅ Prevent memory leaks
-        time.sleep(3600)  # ✅ Run every 5 minutes
+        time.sleep(3600)  
 
 
 def auto_index_dropbox(app):
