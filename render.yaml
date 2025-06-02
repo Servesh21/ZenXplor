@@ -1,0 +1,77 @@
+services:
+  - type: web
+    name: backend
+    env: docker
+    dockerfilePath: backend/dockerfile
+    buildCommand: ""
+    startCommand: ""
+    envVars:
+      - key: SECRET_KEY
+        sync: false
+      - key: SQLALCHEMY_TRACK_MODIFICATIONS
+        sync: false
+      - key: SESSION_TYPE
+        sync: false
+      - key: DATABASE_URI
+        sync: false
+      - key: ELASTICSEARCH_URL
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: CLIENT_SECRET
+        sync: false
+      - key: DROPBOX_CLIENT_ID
+        sync: false
+      - key: DROPBOX_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: ES_HOST
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: FLASK_ENV
+        sync: false
+    autoDeploy: true
+    plan: free
+    healthCheckPath: /
+    envVarsFromFile: backend/.env.example
+
+  - type: web
+    name: frontend
+    env: docker
+    dockerfilePath: frontend/dockerfile
+    buildCommand: ""
+    startCommand: ""
+    autoDeploy: true
+    plan: free
+    healthCheckPath: /
+
+  - type: pserv
+    name: db
+    env: docker
+    dockerfilePath: ""
+    buildCommand: ""
+    startCommand: ""
+    autoDeploy: true
+    plan: free
+
+  - type: pserv
+    name: elasticsearch
+    env: docker
+    dockerfilePath: ""
+    buildCommand: ""
+    startCommand: ""
+    autoDeploy: true
+    plan: free
+
+  - type: pserv
+    name: kibana
+    env: docker
+    dockerfilePath: ""
+    buildCommand: ""
+    startCommand: ""
+    autoDeploy: true
+    plan: free
