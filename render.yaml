@@ -37,7 +37,7 @@ services:
     autoDeploy: true
     plan: free
     healthCheckPath: /
-    envVarsFromFile: backend/.env.example
+    
 
   - type: web
     name: frontend
