@@ -159,7 +159,7 @@ def edit_profile():
         data = request.get_json()
         username = data.get("username", user.username)
         email = data.get("email", user.email)
-        password = data.get("password", None)
+        password = data.get("password")
         profile_picture = data.get("profile_picture", user.profile_picture)
 
         user.username = username
@@ -168,17 +168,16 @@ def edit_profile():
         if password:
             user.password_hash = generate_password_hash(password)
 
-        # Ensure profile picture is only from predefined options
-        if profile_picture in PREDEFINED_PROFILE_PICTURES:
-            user.profile_picture = profile_picture
-        else:
+        if profile_picture not in PREDEFINED_PROFILE_PICTURES:
             return jsonify({"error": "Invalid profile picture selection"}), 400
+
+        user.profile_picture = profile_picture
 
         db.session.commit()
         return jsonify({"message": "Profile updated successfully!", "user": user.to_dict()}), 200
-    
+
     except Exception as e:
-        print("Error:", e)  # Print the error to the Flask console
+        print(f"Error: {e}")
         return jsonify({"error": "An error occurred", "details": str(e)}), 500
     
 
@@ -189,34 +188,61 @@ def login_google():
     return oauth.google.authorize_redirect(redirect_uri)
 
 @auth_bp.route("/authorize/google")
-def authorize_google():
-    token = oauth.google.authorize_access_token()
+import { Request, Response } from 'express';
+import { OAuth2Client } from 'google-auth-library';
+import { sign } from 'jsonwebtoken';
+import { User } from './models/user';
+import { v4 as uuidv4 } from 'uuid';
 
-    # ✅ Get user info via Google’s userinfo endpoint
-    resp = oauth.google.get("https://www.googleapis.com/oauth2/v1/userinfo")
-  
-  
-    user_info = resp.json()
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173/storage-overview';
+const PREDEFINED_PROFILE_PICTURES = ['default_profile.png']; // Replace with actual values
 
-    email = user_info.get("email")
-    username = user_info.get("name") or email.split("@")[0]
-    picture = user_info.get("picture")
+const oauth2Client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        user = User(
-            username=username,
-            email=email,
-            password=str(uuid.uuid4()),
-            profile_picture=picture or PREDEFINED_PROFILE_PICTURES[0]
-        )
-        db.session.add(user)
-        db.session.commit()
+interface GoogleUserResult {
+    email: string;
+    name?: string;
+    picture?: string;
+}
 
-    access_token = create_access_token(identity=str(user.id))
-    response = make_response(redirect("http://localhost:5173/storage-overview"))
-    response.set_cookie("access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False)
-    return response
+export const authorizeGoogle = async (req: Request, res: Response) => {
+    const { tokens } = await oauth2Client.getToken(req.body.code);
+    oauth2Client.setCredentials(tokens);
+
+    const googleUser = await oauth2Client.request<GoogleUserResult>({
+        url: 'https://www.googleapis.com/oauth2/v1/userinfo'
+    });
+
+    const { email, name, picture } = googleUser.data;
+
+    if (!email) {
+        return res.status(400).send('Email not found in Google profile.');
+    }
+
+    let user = await User.findOne({ email });
+
+    if (!user) {
+        const username = name || email.split('@')[0];
+        user = await User.create({
+            username,
+            email,
+            password: uuidv4(),
+            profile_picture: picture || PREDEFINED_PROFILE_PICTURES[0]
+        });
+    }
+
+    const accessToken = sign({ userId: user.id }, JWT_SECRET, { expiresIn: '1h' });
+
+    res.cookie('access_token_cookie', accessToken, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: false // Set to true in production with HTTPS
+    });
+
+    res.redirect(FRONTEND_URL);
+};
 
 
 @auth_bp.route("/login/github")
