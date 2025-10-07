@@ -309,69 +309,82 @@ def get_dropbox_file_type(file_name):
         return file_name.split('.')[-1]  # Extract the file extension (e.g., 'pdf', 'jpg', etc.)
 
 
-def sync_dropbox(account_id, user_id):
-    """Sync Dropbox files for a specific user."""
-    access_token = get_dropbox_access_token(account_id)
-    if not access_token:
-        logging.error(f"No valid access token found for account {account_id}")
-        return
+import { AuthError, Dropbox } from 'dropbox';
+import { insert } from 'sqlalchemy';
 
-    dbx = dropbox.Dropbox(access_token)
+async function syncDropbox(accountId: string, userId: string): Promise<void> {
+    const accessToken = getDropboxAccessToken(accountId);
 
-    try:
-        dbx.users_get_current_account()
-    except AuthError:
-        logging.error("Invalid Dropbox access token")
-        return
+    if (!accessToken) {
+        logging.error(`No valid access token found for account ${accountId}`);
+        return;
+    }
 
-    with current_app.app_context():
-        session = scoped_session(sessionmaker(bind=db.engine))
+    const dbx = new Dropbox({ accessToken });
 
-        try:
-            files = fetch_dropbox_files(dbx)
-            update_count = 0
+    try {
+        await dbx.usersGetAccount();
+    } catch (error) {
+        if (error instanceof AuthError) {
+            logging.error("Invalid Dropbox access token");
+            return;
+        }
+        throw error;
+    }
 
-            for file in files:
-                file_path = file.path_display
-                last_modified = file.server_modified
+    return currentApp.withContext(async () => {
+        const session = scopedSession(sessionmaker({ bind: db.engine }));
 
-                # Use the helper function to get the file extension as filetype
-                file_type = get_dropbox_file_type(file.name)
+        try {
+            const files = await fetchDropboxFiles(dbx);
+            let updateCount = 0;
 
-                stmt = insert(IndexedFile).values(
-                    user_id=user_id,
-                    account_id=account_id,
-                    filename=file.name,
-                    filepath=f"dropbox://{file_path}",
-                    storage_type="dropbox",
-                    filetype=file_type,  # Save file extension as filetype
-                    cloud_file_id=file.id,
-                    mime_type=file.content_hash,  # This is a unique identifier for the file, not the MIME type
-                    last_modified=last_modified,
-                    is_favorite=False  # Default to False for new entries
-                ).on_conflict_do_update(
-                    index_elements=["filepath"],
-                    set_={
-                        "filename": file.name,
-                        "mime_type": file.content_hash,
-                        "filetype": file_type,  # Update filetype based on file extension
-                        "last_modified": last_modified,
-                        "is_favorite": False  # Default to False for updated entries
-                    }
-                )
+            for (const file of files) {
+                const { path_display: filePath, server_modified: lastModified, name } = file;
+                const fileType = getDropboxFileType(name);
 
-                session.execute(stmt)
-                update_count += 1
+                const values = {
+                    user_id: userId,
+                    account_id: accountId,
+                    filename: name,
+                    filepath: `dropbox://${filePath}`,
+                    storage_type: "dropbox",
+                    filetype: fileType,
+                    cloud_file_id: file.id,
+                    mime_type: file.content_hash,
+                    last_modified: lastModified,
+                    is_favorite: false
+                };
 
-            session.commit()
-            logging.info(f"✅ Synced {update_count} files (new + updated) from Dropbox (Account {account_id}) for user {user_id}")
+                const stmt = insert(IndexedFile)
+                    .values(values)
+                    .onConflictDoUpdate({
+                        index_elements: ["filepath"],
+                        set_: {
+                            filename: name,
+                            mime_type: file.content_hash,
+                            filetype: fileType,
+                            last_modified: lastModified,
+                            is_favorite: false
+                        }
+                    });
 
-        except Exception as e:
-            session.rollback()
-            logging.error(f"Error syncing Dropbox (Account {account_id}): {str(e)}")
+                await session.execute(stmt);
+                updateCount++;
+            }
 
-        finally:
-            session.remove()
+            await session.commit();
+            logging.info(`✅ Synced ${updateCount} files (new + updated) from Dropbox (Account ${accountId}) for user ${userId}`);
+
+        } catch (error) {
+            await session.rollback();
+            logging.error(`Error syncing Dropbox (Account ${accountId}): ${String(error)}`);
+
+        } finally {
+            await session.remove();
+        }
+    });
+}
 
 
 def run_with_app_context(app, func, *args):
@@ -390,102 +403,117 @@ def sanitize_filepath(path):
     """Sanitize file paths to ensure consistency."""
     return os.path.abspath(path)
 
+import os
+import logging
+from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy import create_engine
+from elasticsearch import Elasticsearch, helpers
+
+# Assume these are defined elsewhere in your application
+EXCLUDE_DIRS = set()
+EXCLUDE_FILES = set()
+db = None  # Replace with your actual db object
+es = None  # Replace with your actual Elasticsearch client
+indexing_status = {}
+IndexedFile = None  # Replace with your actual IndexedFile model
+sanitize_filepath = lambda x: x  # Replace with your actual sanitize_filepath function
+
 def index_files_worker(user_id, base_directory):
     """Index all folders and files recursively in a given drive/directory with prefix search support."""
-    from app import app
-    with app.app_context():
-        session = scoped_session(sessionmaker(bind=db.engine))  # New DB session
+    indexing_status[user_id] = "in_progress"
+    indexed_items = []
+    new_entries = []
 
-        indexing_status[user_id] = "in_progress"
-        indexed_items = []
-        new_entries = []
+    try:
+        engine = db.engine  # Access the engine directly
+        Session = sessionmaker(bind=engine)
+        session = scoped_session(Session)
 
-        try:
-            for root, dirs, files in os.walk(base_directory):
-                # Filter out excluded directories
-                dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith(".")]
-                print(f"Scanning: {root}")  # Debugging log
+        for root, dirs, files in os.walk(base_directory):
+            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith(".")]
+            print(f"Scanning: {root}")
+
+            for folder in dirs:
+                folder_path = sanitize_filepath(os.path.join(root, folder))
+                if session.query(IndexedFile).filter_by(filepath=folder_path, user_id=user_id).first():
+                    continue
                 
-                # Index Directories
-                for folder in dirs:
-                    folder_path = sanitize_filepath(os.path.join(root, folder))
-                    if session.query(IndexedFile).filter_by(filepath=folder_path, user_id=user_id).first():
-                        continue
-                    new_entries.append(IndexedFile(
-                        user_id=user_id,
-                        filename=folder,
-                        filepath=folder_path,
-                        is_folder=True,
-                        filetype="folder",
-                        storage_type="local",  # Set storage type to 'local' for local files
-                        is_favorite=False  # Default to False for new entries
-                    ))
-                    indexed_items.append({
-                        "id": f"{folder_path}",
-                        "user_id": user_id,
-                        "filename": folder,
-                        "filename_ngram": folder.lower(),  # 👈 Add ngram field for prefix search
-                        "filepath": folder_path,
-                        "is_folder": True,
-                        "filetype": "folder",
-                        "storage_type": "local",  # Set storage type to 'local' for local files
-                        "is_favorite": False  # Default to False for new entries
-                    })
+                indexed_item = {
+                    "id": f"{folder_path}",
+                    "user_id": user_id,
+                    "filename": folder,
+                    "filename_ngram": folder.lower(),
+                    "filepath": folder_path,
+                    "is_folder": True,
+                    "filetype": "folder",
+                    "storage_type": "local",
+                    "is_favorite": False
+                }
+                
+                new_entries.append(IndexedFile(
+                    user_id=user_id,
+                    filename=folder,
+                    filepath=folder_path,
+                    is_folder=True,
+                    filetype="folder",
+                    storage_type="local",
+                    is_favorite=False
+                ))
+                indexed_items.append(indexed_item)
 
-                # Index Files
-                for file in files:
-                    file_path = sanitize_filepath(os.path.join(root, file))
-                    if file in EXCLUDE_FILES or file.startswith("."):
-                        continue  # Skip hidden/system files
+            for file in files:
+                if file in EXCLUDE_FILES or file.startswith("."):
+                    continue
+                
+                file_path = sanitize_filepath(os.path.join(root, file))
+                print(f"Indexing file: {file_path}")
 
-                    print(f"Indexing file: {file_path}")  # Debugging log
+                _, file_extension = os.path.splitext(file)
+                file_extension = file_extension.lower().strip('.')
 
-                    # Extract file extension as filetype (e.g., 'pdf', 'txt', 'jpg')
-                    _, file_extension = os.path.splitext(file)
-                    file_extension = file_extension.lower().strip('.')  # Remove the leading dot and convert to lowercase
+                if session.query(IndexedFile).filter_by(filepath=file_path, user_id=user_id).first():
+                    continue
 
-                    if session.query(IndexedFile).filter_by(filepath=file_path, user_id=user_id).first():
-                        continue
-                    
-                    new_entries.append(IndexedFile(
-                        user_id=user_id,
-                        filename=file,
-                        filepath=file_path,
-                        is_folder=False,
-                        filetype=file_extension,  # Save filetype (extension)
-                        storage_type="local",  # Set storage type to 'local' for local files
-                        is_favorite=False  # Default to False for new entries
-                    ))
+                indexed_item = {
+                    "id": f"{file_path}",
+                    "user_id": user_id,
+                    "filename": file,
+                    "filename_ngram": file.lower(),
+                    "filepath": file_path,
+                    "is_folder": False,
+                    "filetype": file_extension,
+                    "storage_type": "local",
+                    "is_favorite": False
+                }
 
-                    indexed_items.append({
-                        "id": f"{file_path}",
-                        "user_id": user_id,
-                        "filename": file,
-                        "filename_ngram": file.lower(),  # 👈 Add ngram field for prefix search
-                        "filepath": file_path,
-                        "is_folder": False,
-                        "filetype": file_extension,  # Include filetype (extension) for files
-                        "storage_type": "local" , # Set storage type to 'local' for local files
-                        "is_favorite": False  # Default to False for new entries
-                    })
+                new_entries.append(IndexedFile(
+                    user_id=user_id,
+                    filename=file,
+                    filepath=file_path,
+                    is_folder=False,
+                    filetype=file_extension,
+                    storage_type="local",
+                    is_favorite=False
+                ))
+                indexed_items.append(indexed_item)
 
-            # Commit new entries to the database
-            if new_entries:
-                session.bulk_save_objects(new_entries)
-                session.commit()
-                print(f"Committed {len(new_entries)} files/folders to DB")  # Debugging log
+        if new_entries:
+            session.bulk_save_objects(new_entries)
+            session.commit()
+            print(f"Committed {len(new_entries)} files/folders to DB")
 
-            # Index in Elasticsearch
-            if indexed_items:
-                helpers.bulk(es, [{"_index": "file_index", "_id": item["id"], "_source": item} for item in indexed_items])
-                print(f"Indexed {len(indexed_items)} items in Elasticsearch")  # Debugging log
+        if indexed_items:
+            es_actions = [{"_index": "file_index", "_id": item["id"], "_source": item} for item in indexed_items]
+            helpers.bulk(es, es_actions)
+            print(f"Indexed {len(indexed_items)} items in Elasticsearch")
 
-        except Exception as e:
-            logging.error(f"Error during indexing: {str(e)}")
+    except Exception as e:
+        logging.error(f"Error during indexing: {str(e)}")
 
-        finally:
+    finally:
+        if 'session' in locals():
             session.remove()
-            indexing_status[user_id] = "completed"
+        indexing_status[user_id] = "completed"
 
 from sqlalchemy.dialects.postgresql import insert
 
@@ -896,64 +924,90 @@ def search_files():
 
 @search_bp.route("/open-file", methods=["POST"])
 @jwt_required()
-def open_file():
-    """Open file location in File Explorer, Finder, or File Manager, or return cloud file URLs."""
-    user_id = get_jwt_identity()
-    data = request.get_json()
-    file_path = data.get("filepath")
+import { Request, Response } from 'express';
+import { getJwtIdentity } from './auth'; // Assuming auth.ts exports this
+import { IndexedFile } from './models'; // Assuming models.ts exports this
+import * as os from 'os';
+import * as path from 'path';
+import { exec } from 'child_process';
 
-    # 🔍 Debugging Logs
-    print(f"User {user_id} is requesting to open: {file_path}")
+interface OpenFileRequest {
+    filepath: string;
+}
 
-    if not file_path:
-        return jsonify({"error": "File path is required"}), 400
+export const openFile = async (req: Request, res: Response): Promise<void> => {
+    const userId = getJwtIdentity(req);
+    const { filepath } = req.body as OpenFileRequest;
 
-    # Check if the file is indexed and belongs to the authenticated user
-    file_record = IndexedFile.query.filter_by(filepath=file_path, user_id=user_id).first()
-    if not file_record:
-        print("❌ Unauthorized access attempt")  # Debugging log
-        return jsonify({"error": "Unauthorized access"}), 403
+    console.log(`User ${userId} is requesting to open: ${filepath}`);
 
-    storage_type = file_record.storage_type  # "local", "google_drive", "dropbox"
-    cloud_file_id = file_record.cloud_file_id  # Used for Google Drive & Dropbox
+    if (!filepath) {
+        res.status(400).json({ error: 'File path is required' });
+        return;
+    }
 
-    try:
-        if storage_type == "local":
-            if not os.path.exists(file_path):
-                print("❌ File not found")  # Debugging log
-                return jsonify({"error": "File not found"}), 400
+    const fileRecord = await IndexedFile.findOne({ filepath, user_id: userId });
 
-            # ✅ Open file location in the OS-specific file explorer
-            if platform.system() == "Windows":
-                subprocess.run(f'explorer /select,"{file_path}"', shell=True, check=True)
-            else:
-                subprocess.run(["xdg-open", file_path], check=True)
+    if (!fileRecord) {
+        console.log('❌ Unauthorized access attempt');
+        res.status(403).json({ error: 'Unauthorized access' });
+        return;
+    }
 
-            return jsonify({"message": "File opened successfully"}), 200
+    const { storage_type, cloud_file_id, filename } = fileRecord;
 
-        elif storage_type == "google_drive":
-            if not cloud_file_id:
-                return jsonify({"error": "Cloud file ID missing"}), 400
+    try {
+        switch (storage_type) {
+            case 'local':
+                if (!os.existsSync(filepath)) {
+                    console.log('❌ File not found');
+                    res.status(400).json({ error: 'File not found' });
+                    return;
+                }
 
-            drive_url = f"https://drive.google.com/uc?id={cloud_file_id}"
-            return jsonify({"url": drive_url})
+                let command: string;
+                if (os.platform() === 'win32') {
+                    command = `explorer /select,"${filepath}"`;
+                } else {
+                    command = `xdg-open "${filepath}"`;
+                }
 
-        elif storage_type == "dropbox":
-            if not cloud_file_id:
-                return jsonify({"error": "Cloud file ID missing"}), 400
+                exec(command, (error) => {
+                    if (error) {
+                        console.error(`Failed to open file: ${error}`);
+                        res.status(500).json({ error: `Failed to open file: ${error.message}` });
+                    } else {
+                        res.status(200).json({ message: 'File opened successfully' });
+                    }
+                });
+                break;
 
-            # Dropbox file link (ensure path formatting is correct)
-            file = file_record.filename  
-            dropbox_url = f"https://www.dropbox.com/home/{cloud_file_id}?preview={file}"
+            case 'google_drive':
+                if (!cloud_file_id) {
+                    res.status(400).json({ error: 'Cloud file ID missing' });
+                    return;
+                }
+                const driveUrl = `https://drive.google.com/uc?id=${cloud_file_id}`;
+                res.json({ url: driveUrl });
+                break;
 
-            return jsonify({"url": dropbox_url})
+            case 'dropbox':
+                if (!cloud_file_id) {
+                    res.status(400).json({ error: 'Cloud file ID missing' });
+                    return;
+                }
+                const dropboxUrl = `https://www.dropbox.com/home/${cloud_file_id}?preview=${filename}`;
+                res.json({ url: dropboxUrl });
+                break;
 
-        else:
-            return jsonify({"error": "Unsupported storage type"}), 400
-
-    except Exception as e:
-        print(f"❌ Failed to open file: {e}")  # Debugging log
-        return jsonify({"error": f"Failed to open file: {str(e)}"}), 500
+            default:
+                res.status(400).json({ error: 'Unsupported storage type' });
+        }
+    } catch (error: any) {
+        console.error(`❌ Failed to open file: ${error}`);
+        res.status(500).json({ error: `Failed to open file: ${error.message}` });
+    }
+};
     
 @search_bp.route("/sync-cloud-storage", methods=["POST"])
 @jwt_required()
