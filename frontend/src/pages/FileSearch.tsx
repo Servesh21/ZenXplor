@@ -35,6 +35,14 @@ type PickerWindow = Window & {
 
 const browserHandleCache = new Map<string, FileSystemFileHandle>();
 
+const getFileExtension = (name: string): string => {
+  const lastDotIndex = name.lastIndexOf(".");
+  if (lastDotIndex <= 0 || lastDotIndex === name.length - 1) {
+    return "unknown";
+  }
+  return name.slice(lastDotIndex + 1).toLowerCase();
+};
+
 const FileSearch: React.FC = () => {
   const navigate = useNavigate();
 
@@ -220,8 +228,7 @@ const FileSearch: React.FC = () => {
     try {
       await axios.post("http://localhost:5000/search/open-file", { filepath }, { withCredentials: true });
       showToastNotification("Opening file location");
-    } catch (error) {
-      
+    } catch {
       showToastNotification("Opening file location");
     }
   };
@@ -253,10 +260,14 @@ const FileSearch: React.FC = () => {
     ];
 
     while (queue.length) {
-      const current = queue.shift()!;
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
       for await (const [name, childHandle] of current.handle.entries()) {
         const nextPath = `${current.relativePath}/${name}`;
         if (childHandle.kind === "directory") {
+          const directoryHandle = childHandle as FileSystemDirectoryHandle;
           entries.push({
             filename: name,
             filepath: `browser://${nextPath}`,
@@ -265,12 +276,13 @@ const FileSearch: React.FC = () => {
             mime_type: null,
             last_modified: null
           });
-          queue.push({ handle: childHandle, relativePath: nextPath });
+          queue.push({ handle: directoryHandle, relativePath: nextPath });
         } else {
-          const file = await childHandle.getFile();
-          const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "unknown";
+          const fileHandle = childHandle as FileSystemFileHandle;
+          const file = await fileHandle.getFile();
+          const ext = getFileExtension(name);
           const browserPath = `browser://${nextPath}`;
-          browserHandleCache.set(browserPath, childHandle);
+          browserHandleCache.set(browserPath, fileHandle);
           entries.push({
             filename: name,
             filepath: browserPath,
@@ -287,7 +299,7 @@ const FileSearch: React.FC = () => {
   };
 
   const indexWithFileInputFallback = async () => {
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
       const input = document.createElement("input");
       input.type = "file";
       input.multiple = true;
@@ -295,12 +307,11 @@ const FileSearch: React.FC = () => {
       input.onchange = async () => {
         try {
           const list = Array.from(input.files || []);
-          browserHandleCache.clear();
           const entries: BrowserIndexedEntry[] = list.map((file) => {
             const relPath =
               (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
               file.name;
-            const ext = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : "unknown";
+            const ext = getFileExtension(file.name);
             return {
               filename: file.name,
               filepath: `browser://${relPath}`,
@@ -312,11 +323,10 @@ const FileSearch: React.FC = () => {
           });
           await indexBrowserSelectedFiles(entries);
           showToastNotification(`Indexed ${entries.length} files (fallback mode)`);
+          resolve();
         } catch (error) {
           console.error("Fallback indexing failed:", error);
-          throw error;
-        } finally {
-          resolve();
+          reject(error);
         }
       };
       input.click();
@@ -768,7 +778,9 @@ const FileSearch: React.FC = () => {
                                 whileTap={{ scale: 0.9 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  file.filepath && handleDownload(file.filepath, file.filename);
+                                  if (file.filepath) {
+                                    handleDownload(file.filepath, file.filename);
+                                  }
                                 }}
                                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
                                 title="Download"
@@ -1015,7 +1027,9 @@ const FileSearch: React.FC = () => {
                                 whileTap={{ scale: 0.9 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  file.filepath && handleDownload(file.filepath, file.filename);
+                                  if (file.filepath) {
+                                    handleDownload(file.filepath, file.filename);
+                                  }
                                 }}
                                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
                                 title="Download"

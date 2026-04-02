@@ -12,13 +12,10 @@ import time
 from flask import Blueprint, jsonify, send_file, current_app, request as flask_request
 from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy import or_
-from flask import send_file
-from googleapiclient.discovery import build
-from googleapiclient.discovery import build_from_document
-import platform , subprocess
-from googleapiclient.discovery import build
+from googleapiclient.discovery import build, build_from_document
+import platform, subprocess
 from google.oauth2.credentials import Credentials
-from datetime import datetime
+from datetime import datetime, timezone
 import dropbox
 from dropbox.exceptions import AuthError
 from sqlalchemy.dialects.postgresql import insert
@@ -780,8 +777,18 @@ def index_browser_files():
             if not filetype:
                 filetype = "folder" if is_folder else "unknown"
 
-            if isinstance(last_modified, (int, float)):
-                last_modified = datetime.utcfromtimestamp(last_modified / 1000.0)
+            if isinstance(last_modified, (int, float)) and last_modified > 0:
+                # Milliseconds threshold: ~Sep 2001 in ms
+                if last_modified >= 1000000000000:
+                    # JavaScript File.lastModified (milliseconds)
+                    parsed_last_modified = datetime.fromtimestamp(last_modified / 1000.0, tz=timezone.utc)
+                # Seconds threshold: ~Sep 2001 in seconds
+                elif last_modified >= 1000000000:
+                    # Seconds-based Unix timestamp fallback
+                    parsed_last_modified = datetime.fromtimestamp(last_modified, tz=timezone.utc)
+                else:
+                    parsed_last_modified = None
+                last_modified = parsed_last_modified
             else:
                 last_modified = None
 
