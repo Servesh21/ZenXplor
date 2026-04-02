@@ -13,7 +13,6 @@ from flask import Blueprint, jsonify, send_file, current_app, request as flask_r
 from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy import or_
 from googleapiclient.discovery import build, build_from_document
-import platform, subprocess
 from google.oauth2.credentials import Credentials
 from datetime import datetime, timezone
 import dropbox
@@ -35,6 +34,7 @@ CORS(search_bp, supports_credentials=True, origins=["http://localhost:5173"])
 
 logging.basicConfig(level=logging.INFO)
 indexing_status = {}
+executor = None
 
 
 AUTO_SYNC_INTERVAL_LOCAL = 30
@@ -101,24 +101,6 @@ def get_user_dirs():
     user_home = os.path.expanduser("~")  # Automatically gets C:/Users/Username
     return [user_home] if os.path.exists(user_home) else []
 
-from concurrent.futures import ThreadPoolExecutor
-
-def auto_index_local_storage():
-    """Periodically check for new files and index only them, avoiding reindexing existing ones."""
-    while True:
-        with current_app.app_context():
-            users = db.session.query(IndexedFile.user_id).distinct().all()
-            user_dirs = get_user_dirs()
-
-            with ThreadPoolExecutor(max_workers=5) as executor:  # Limit threads to avoid overload
-                for (user_id,) in users:
-                    for user_dir in user_dirs:
-                        if is_valid_dir(user_dir):
-                            executor.submit(index_new_files_only, user_id, user_dir)
-
-        from concurrent.futures import ThreadPoolExecutor
-
-executor = None
 def auto_index_local_storage(app):
     """Periodically check for new files and index only new ones."""
     global executor
@@ -1060,17 +1042,7 @@ def open_file():
             return jsonify({"error": "Use browser session actions to open this file"}), 400
 
         if storage_type == "local":
-            if not os.path.exists(file_path):
-                print("❌ File not found")  # Debugging log
-                return jsonify({"error": "File not found"}), 400
-
-            # ✅ Open file location in the OS-specific file explorer
-            if platform.system() == "Windows":
-                subprocess.run(f'explorer /select,"{file_path}"', shell=True, check=True)
-            else:
-                subprocess.run(["xdg-open", file_path], check=True)
-
-            return jsonify({"message": "File opened successfully"}), 200
+            return jsonify({"error": "Opening local file locations is not supported from web clients"}), 400
 
         elif storage_type == "google_drive":
             if not cloud_file_id:
