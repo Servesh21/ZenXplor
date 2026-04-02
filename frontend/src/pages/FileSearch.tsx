@@ -20,6 +20,21 @@ interface FileItem {
   is_favorite: boolean;
 }
 
+interface BrowserIndexedEntry {
+  filename: string;
+  filepath: string;
+  is_folder: boolean;
+  filetype: string;
+  mime_type: string | null;
+  last_modified: number | null;
+}
+
+type PickerWindow = Window & {
+  showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+};
+
+const browserHandleCache = new Map<string, FileSystemFileHandle>();
+
 const FileSearch: React.FC = () => {
   const navigate = useNavigate();
 
@@ -137,6 +152,31 @@ const FileSearch: React.FC = () => {
   );
 
   const handleDownload = async (filepath: string, filename: string) => {
+    if (filepath.startsWith("browser://")) {
+      const handle = browserHandleCache.get(filepath);
+      if (!handle) {
+        showToastNotification("File is not available in this browser session. Re-index folder.");
+        return;
+      }
+      try {
+        const file = await handle.getFile();
+        const url = window.URL.createObjectURL(file);
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", filename || file.name || "file");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        showToastNotification(`Downloaded ${filename}`);
+        return;
+      } catch (error) {
+        console.error("Failed browser-session download:", error);
+        showToastNotification("Failed to download file");
+        return;
+      }
+    }
+
     try {
       const response = await axios.get(`http://localhost:5000/search/download-file?filepath=${encodeURIComponent(filepath)}`, {
         withCredentials: true,
@@ -158,6 +198,25 @@ const FileSearch: React.FC = () => {
   };
 
   const handleOpenFileLocation = async (filepath: string) => {
+    if (filepath.startsWith("browser://")) {
+      const handle = browserHandleCache.get(filepath);
+      if (!handle) {
+        showToastNotification("File is not available in this browser session. Re-index folder.");
+        return;
+      }
+      try {
+        const file = await handle.getFile();
+        const url = window.URL.createObjectURL(file);
+        window.open(url, "_blank", "noopener,noreferrer");
+        showToastNotification("Opened file preview in browser");
+        return;
+      } catch (error) {
+        console.error("Failed browser-session open:", error);
+        showToastNotification("Failed to open file preview");
+        return;
+      }
+    }
+
     try {
       await axios.post("http://localhost:5000/search/open-file", { filepath }, { withCredentials: true });
       showToastNotification("Opening file location");
@@ -167,12 +226,117 @@ const FileSearch: React.FC = () => {
     }
   };
 
+  const indexBrowserSelectedFiles = async (entries: BrowserIndexedEntry[]) => {
+    if (!entries.length) {
+      showToastNotification("No files found in selected folder");
+      return;
+    }
+
+    const chunkSize = 1000;
+    for (let i = 0; i < entries.length; i += chunkSize) {
+      const chunk = entries.slice(i, i + chunkSize);
+      await axios.post(
+        "http://localhost:5000/search/index-browser-files",
+        { files: chunk },
+        { withCredentials: true }
+      );
+    }
+  };
+
+  const scanDirectoryHandle = async (
+    rootHandle: FileSystemDirectoryHandle,
+    rootName: string
+  ): Promise<BrowserIndexedEntry[]> => {
+    const entries: BrowserIndexedEntry[] = [];
+    const queue: Array<{ handle: FileSystemDirectoryHandle; relativePath: string }> = [
+      { handle: rootHandle, relativePath: rootName }
+    ];
+
+    while (queue.length) {
+      const current = queue.shift()!;
+      for await (const [name, childHandle] of current.handle.entries()) {
+        const nextPath = `${current.relativePath}/${name}`;
+        if (childHandle.kind === "directory") {
+          entries.push({
+            filename: name,
+            filepath: `browser://${nextPath}`,
+            is_folder: true,
+            filetype: "folder",
+            mime_type: null,
+            last_modified: null
+          });
+          queue.push({ handle: childHandle, relativePath: nextPath });
+        } else {
+          const file = await childHandle.getFile();
+          const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "unknown";
+          const browserPath = `browser://${nextPath}`;
+          browserHandleCache.set(browserPath, childHandle);
+          entries.push({
+            filename: name,
+            filepath: browserPath,
+            is_folder: false,
+            filetype: ext,
+            mime_type: file.type || null,
+            last_modified: file.lastModified || null
+          });
+        }
+      }
+    }
+
+    return entries;
+  };
+
+  const indexWithFileInputFallback = async () => {
+    return new Promise<void>((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.multiple = true;
+      (input as HTMLInputElement & { webkitdirectory?: boolean }).webkitdirectory = true;
+      input.onchange = async () => {
+        try {
+          const list = Array.from(input.files || []);
+          browserHandleCache.clear();
+          const entries: BrowserIndexedEntry[] = list.map((file) => {
+            const relPath =
+              (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+              file.name;
+            const ext = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : "unknown";
+            return {
+              filename: file.name,
+              filepath: `browser://${relPath}`,
+              is_folder: false,
+              filetype: ext,
+              mime_type: file.type || null,
+              last_modified: file.lastModified || null
+            };
+          });
+          await indexBrowserSelectedFiles(entries);
+          showToastNotification(`Indexed ${entries.length} files (fallback mode)`);
+        } catch (error) {
+          console.error("Fallback indexing failed:", error);
+          throw error;
+        } finally {
+          resolve();
+        }
+      };
+      input.click();
+    });
+  };
+
   const handleIndex = async () => {
     setIndexingStatus("indexing");
     try {
-      await axios.post("http://localhost:5000/search/index-files", {}, { withCredentials: true });
+      const pickerWindow = window as PickerWindow;
+      if (pickerWindow.showDirectoryPicker) {
+        const dirHandle = await pickerWindow.showDirectoryPicker();
+        browserHandleCache.clear();
+        const entries = await scanDirectoryHandle(dirHandle, dirHandle.name || "selected-folder");
+        await indexBrowserSelectedFiles(entries);
+        showToastNotification(`Indexed ${entries.length} browser files successfully`);
+      } else {
+        await indexWithFileInputFallback();
+      }
       setIndexingStatus("completed");
-      showToastNotification("Files indexed successfully");
       setTimeout(() => setIndexingStatus("not_started"), 3000);
     } catch (error) {
       console.error("Indexing failed:", error);
@@ -473,6 +637,7 @@ const FileSearch: React.FC = () => {
                       >
                         <option value="">All Services</option>
                         <option value="local">Local Storage</option>
+                        <option value="local_browser">Browser Local Session</option>
                         <option value="google_drive">Google Drive</option>
                         <option value="dropbox">Dropbox</option>
                         <option value="google_photos">Google Photos</option>

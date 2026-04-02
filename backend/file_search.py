@@ -11,6 +11,7 @@ from flask import current_app
 import time
 from flask import Blueprint, jsonify, send_file, current_app, request as flask_request
 from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy import or_
 from flask import send_file
 from googleapiclient.discovery import build
 from googleapiclient.discovery import build_from_document
@@ -390,6 +391,17 @@ def sanitize_filepath(path):
     """Sanitize file paths to ensure consistency."""
     return os.path.abspath(path)
 
+def sanitize_browser_filepath(path):
+    """Sanitize browser-indexed virtual paths."""
+    if not isinstance(path, str):
+        return None
+    cleaned = path.strip()
+    if not cleaned.startswith("browser://"):
+        return None
+    if len(cleaned) > 512:
+        return None
+    return cleaned
+
 def index_files_worker(user_id, base_directory):
     """Index all folders and files recursively in a given drive/directory with prefix search support."""
     from app import app
@@ -729,6 +741,117 @@ def index_files():
     return jsonify({"message": f"Indexing started for drives: {drives}"}), 202
 
 
+@search_bp.route("/index-browser-files", methods=["POST"])
+@jwt_required()
+def index_browser_files():
+    """Upsert browser-selected local file metadata for the authenticated user."""
+    user_id = get_jwt_identity()
+    payload = request.get_json(silent=True) or {}
+    files = payload.get("files", [])
+
+    if not isinstance(files, list) or not files:
+        return jsonify({"error": "files must be a non-empty array"}), 400
+
+    if len(files) > 10000:
+        return jsonify({"error": "Too many files in a single request"}), 400
+
+    session = scoped_session(sessionmaker(bind=db.engine))
+    db_rows = []
+    es_docs = []
+    skipped = 0
+
+    try:
+        for entry in files:
+            if not isinstance(entry, dict):
+                skipped += 1
+                continue
+
+            filename = str(entry.get("filename", "")).strip()
+            filepath = sanitize_browser_filepath(entry.get("filepath"))
+            is_folder = bool(entry.get("is_folder", False))
+            filetype = str(entry.get("filetype", "")).strip().lower()
+            mime_type = entry.get("mime_type")
+            last_modified = entry.get("last_modified")
+
+            if not filename or not filepath:
+                skipped += 1
+                continue
+
+            if not filetype:
+                filetype = "folder" if is_folder else "unknown"
+
+            if isinstance(last_modified, (int, float)):
+                last_modified = datetime.utcfromtimestamp(last_modified / 1000.0)
+            else:
+                last_modified = None
+
+            db_rows.append({
+                "user_id": user_id,
+                "filename": filename[:255],
+                "filepath": filepath,
+                "is_folder": is_folder,
+                "filetype": filetype[:500],
+                "storage_type": "local_browser",
+                "mime_type": (mime_type[:1024] if isinstance(mime_type, str) else None),
+                "last_modified": last_modified,
+                "is_favorite": False
+            })
+
+            es_docs.append({
+                "id": filepath,
+                "user_id": user_id,
+                "filename": filename[:255],
+                "filename_ngram": filename.lower()[:255],
+                "filepath": filepath,
+                "is_folder": is_folder,
+                "filetype": filetype[:500],
+                "storage_type": "local_browser",
+                "is_favorite": False
+            })
+
+        if not db_rows:
+            return jsonify({"error": "No valid files to index"}), 400
+
+        for row in db_rows:
+            stmt = insert(IndexedFile).values(**row).on_conflict_do_update(
+                index_elements=["filepath"],
+                set_={
+                    "user_id": row["user_id"],
+                    "filename": row["filename"],
+                    "is_folder": row["is_folder"],
+                    "filetype": row["filetype"],
+                    "storage_type": row["storage_type"],
+                    "mime_type": row["mime_type"],
+                    "last_modified": row["last_modified"]
+                }
+            )
+            session.execute(stmt)
+
+        session.commit()
+
+        if es and check_elasticsearch():
+            helpers.bulk(
+                es,
+                [
+                    {"_index": "file_index", "_id": doc["id"], "_source": doc}
+                    for doc in es_docs
+                ]
+            )
+
+        return jsonify({
+            "message": "Browser files indexed successfully",
+            "indexed_count": len(db_rows),
+            "skipped_count": skipped
+        }), 200
+
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Browser indexing failed: {str(e)}")
+        return jsonify({"error": "Failed to index browser files"}), 500
+    finally:
+        session.remove()
+
+
 
 @search_bp.route("/index-status", methods=["GET"])
 @jwt_required()
@@ -825,10 +948,15 @@ def search_files():
             "size": 100  # Get max possible, pagination happens after merge
         }
 
-        if service_filter and service_filter != "local":
-            es_query["query"]["bool"]["filter"].append({
-                "term": {"storage_type": service_filter}
-            })
+        if service_filter:
+            if service_filter == "local":
+                es_query["query"]["bool"]["filter"].append({
+                    "terms": {"storage_type": ["local", "local_browser"]}
+                })
+            else:
+                es_query["query"]["bool"]["filter"].append({
+                    "term": {"storage_type": service_filter}
+                })
 
         if filetype_filter:
             es_query["query"]["bool"]["filter"].append({
@@ -858,7 +986,10 @@ def search_files():
             if query:
                 filters.append(IndexedFile.filename.ilike(f"%{query.strip('*')}%"))
             if service_filter:
-                filters.append(IndexedFile.storage_type == service_filter)
+                if service_filter == "local":
+                    filters.append(or_(IndexedFile.storage_type == "local", IndexedFile.storage_type == "local_browser"))
+                else:
+                    filters.append(IndexedFile.storage_type == service_filter)
             if filetype_filter:
                 filters.append(IndexedFile.filetype == filetype_filter)
 
@@ -918,6 +1049,9 @@ def open_file():
     cloud_file_id = file_record.cloud_file_id  # Used for Google Drive & Dropbox
 
     try:
+        if storage_type == "local_browser":
+            return jsonify({"error": "Use browser session actions to open this file"}), 400
+
         if storage_type == "local":
             if not os.path.exists(file_path):
                 print("❌ File not found")  # Debugging log
@@ -1056,6 +1190,9 @@ def download_file():
     if not file_record:
         return jsonify({"error": "Unauthorized access"}), 403
 
+    if file_record.storage_type == "local_browser":
+        return jsonify({"error": "Use browser session actions to download this file"}), 400
+
     # If the file is a local file, return it
     if file_record.storage_type != "google_drive":
         if not os.path.exists(file_path):
@@ -1113,4 +1250,3 @@ def toggle_favorite(file_path):
     db.session.commit()
 
     return jsonify({"message": "Favorite status updated", "file": file.to_dict()})
-
