@@ -419,7 +419,7 @@ def extract_text_from_file(file_obj, filetype: str) -> str:
                     break
             return "\n".join(parts)[:MAX_CONTENT_SNIPPET]
 
-        if filetype in ("docx", "doc"):
+        if filetype in ("docx",):
             import docx as docx_lib
             doc = docx_lib.Document(file_obj)
             text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())

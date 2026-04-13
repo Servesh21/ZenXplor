@@ -4,29 +4,14 @@
  * Sets up a periodic alarm that triggers an automatic re-sync of all
  * watched folders every hour so the index stays fresh without any manual
  * user action.
- *
- * The actual sync logic lives in popup.js; here we only handle the alarm
- * and message the popup (or re-run the sync inline if the popup is closed).
  */
+
+import { EXCLUDE_DIRS, CHUNK_SIZE, DB_NAME, STORE_HANDLES } from "./constants.js";
 
 const ALARM_NAME = "zenxplor-auto-sync";
 const ALARM_PERIOD_MINUTES = 60;
 
-const TEXT_EXTENSIONS = new Set([
-  "txt", "md", "rst", "csv", "log", "py", "js", "ts", "jsx", "tsx",
-  "html", "htm", "css", "json", "xml", "yaml", "yml", "toml", "ini",
-  "cfg", "sh", "bat", "c", "cpp", "h", "java", "rb", "go", "rs",
-]);
-
-const EXCLUDE_DIRS = new Set([
-  "node_modules", ".git", ".venv", ".gradle", "AppData", ".cache",
-  ".config", ".idea", ".vscode", "Library", "__pycache__",
-]);
-
-// ─── IndexedDB helpers (duplicated from popup.js for service-worker context) ─
-
-const DB_NAME = "zenxplor-ext";
-const STORE_HANDLES = "folder-handles";
+// ─── IndexedDB helpers ────────────────────────────────────────────────────────
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -64,8 +49,6 @@ async function* walkDirectory(dirHandle, relativePath) {
 }
 
 // ─── Upload helper ────────────────────────────────────────────────────────────
-
-const CHUNK_SIZE = 20;
 
 async function uploadChunk(files, backendUrl, token) {
   const formData = new FormData();

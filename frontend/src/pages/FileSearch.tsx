@@ -283,14 +283,14 @@ const FileSearch: React.FC = () => {
         } else {
           const fileHandle = childHandle as FileSystemFileHandle;
           const file = await fileHandle.getFile();
-          const ext = getFileExtension(name);
+          const fileExtension = getFileExtension(name);
           const browserPath = `browser://${nextPath}`;
           browserHandleCache.set(browserPath, fileHandle);
           entries.push({
             filename: name,
             filepath: browserPath,
             is_folder: false,
-            filetype: ext,
+            filetype: fileExtension,
             mime_type: file.type || null,
             last_modified: file.lastModified || null
           });
@@ -373,13 +373,13 @@ const FileSearch: React.FC = () => {
       const fileList = Array.from(input.files || []);
       if (!fileList.length) return;
 
-      const CHUNK = 50; // files per request
+      const FILES_PER_CHUNK = 50;
       let indexed = 0;
       setUploadProgress({ current: 0, total: fileList.length });
 
       try {
-        for (let i = 0; i < fileList.length; i += CHUNK) {
-          const chunk = fileList.slice(i, i + CHUNK);
+        for (let i = 0; i < fileList.length; i += FILES_PER_CHUNK) {
+          const chunk = fileList.slice(i, i + FILES_PER_CHUNK);
           const formData = new FormData();
           chunk.forEach((file) => {
             formData.append("files", file, file.name);

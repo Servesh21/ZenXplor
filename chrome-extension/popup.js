@@ -4,21 +4,20 @@
  * Flow:
  *  1. User enters their ZenXplor backend URL + JWT access token once.
  *  2. User adds one or more local folders to watch (via showDirectoryPicker).
- *  3. "Sync Now" (or the hourly alarm) scans every watched folder, reads files,
- *     extracts plain-text where possible, and POSTs to the backend.
+ *  3. "Sync Now" (or the hourly alarm) scans every watched folder and uploads
+ *     files to the backend in small chunks.
  *
  * Files are sent to POST /search/upload-and-index (multipart) so the server
- * can do deeper extraction for PDF / DOCX / PPTX as well.
+ * can extract text content for PDF / DOCX / PPTX / plain-text files.
  *
  * Folder *handles* are kept in the extension's own IndexedDB so they survive
  * popup close / browser restart (Chrome persists FileSystemDirectoryHandle
  * objects stored in IndexedDB for extensions).
  */
 
-// ─── IndexedDB helpers ────────────────────────────────────────────────────────
+import { TEXT_EXTENSIONS, EXCLUDE_DIRS, CHUNK_SIZE, DB_NAME, STORE_HANDLES } from "./constants.js";
 
-const DB_NAME = "zenxplor-ext";
-const STORE_HANDLES = "folder-handles";
+// ─── IndexedDB helpers ────────────────────────────────────────────────────────
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -61,32 +60,7 @@ async function removeHandle(name) {
   });
 }
 
-// ─── Text extraction (plain text only; server handles PDF/DOCX/PPTX) ─────────
-
-const TEXT_EXTENSIONS = new Set([
-  "txt", "md", "rst", "csv", "log", "py", "js", "ts", "jsx", "tsx",
-  "html", "htm", "css", "json", "xml", "yaml", "yml", "toml", "ini",
-  "cfg", "sh", "bat", "c", "cpp", "h", "java", "rb", "go", "rs",
-]);
-
-async function extractText(fileHandle) {
-  try {
-    const file = await fileHandle.getFile();
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!TEXT_EXTENSIONS.has(ext)) return "";
-    const slice = file.slice(0, 50000);
-    return await slice.text();
-  } catch {
-    return "";
-  }
-}
-
 // ─── Scan a directory handle recursively ─────────────────────────────────────
-
-const EXCLUDE_DIRS = new Set([
-  "node_modules", ".git", ".venv", ".gradle", "AppData", ".cache",
-  ".config", ".idea", ".vscode", "Library", "__pycache__",
-]);
 
 async function* walkDirectory(dirHandle, relativePath) {
   for await (const [name, handle] of dirHandle.entries()) {
@@ -101,8 +75,6 @@ async function* walkDirectory(dirHandle, relativePath) {
 }
 
 // ─── Upload to ZenXplor backend ───────────────────────────────────────────────
-
-const CHUNK_SIZE = 20; // files per multipart request
 
 async function uploadChunk(files, backendUrl, token) {
   const formData = new FormData();
@@ -138,14 +110,10 @@ async function syncAll(onProgress) {
     return;
   }
 
-  let total = 0;
-  let indexed = 0;
   const allFiles = [];
 
-  // Collect all files from all watched folders
   onProgress({ status: "scanning", message: "Scanning folders…", percent: 0 });
   for (const { name, handle } of savedHandles) {
-    // Re-request permission if needed (required after browser restart)
     const perm = await handle.queryPermission({ mode: "read" });
     if (perm !== "granted") {
       const req = await handle.requestPermission({ mode: "read" });
@@ -159,7 +127,7 @@ async function syncAll(onProgress) {
     }
   }
 
-  total = allFiles.length;
+  const total = allFiles.length;
   if (total === 0) {
     onProgress({ status: "done", message: "No files found in watched folders.", percent: 100 });
     return;
@@ -167,6 +135,7 @@ async function syncAll(onProgress) {
 
   onProgress({ status: "uploading", message: `Found ${total} files. Uploading…`, percent: 0 });
 
+  let indexed = 0;
   for (let i = 0; i < allFiles.length; i += CHUNK_SIZE) {
     const chunk = allFiles.slice(i, i + CHUNK_SIZE);
     try {
@@ -228,7 +197,6 @@ async function renderFolderList() {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // Restore saved settings
   const stored = await chrome.storage.local.get(["backendUrl", "jwtToken", "lastSync"]);
   if (stored.backendUrl) $("backend-url").value = stored.backendUrl;
   if (stored.jwtToken)  $("jwt-token").value   = stored.jwtToken;
@@ -236,7 +204,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   await renderFolderList();
 
-  // Save settings
   $("save-settings-btn").addEventListener("click", async () => {
     const backendUrl = $("backend-url").value.trim().replace(/\/$/, "");
     const jwtToken   = $("jwt-token").value.trim();
@@ -247,7 +214,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     setTimeout(() => { $("settings-status").textContent = ""; }, 2000);
   });
 
-  // Add folder
   $("add-folder-btn").addEventListener("click", async () => {
     try {
       const handle = await window.showDirectoryPicker({ mode: "read" });
@@ -258,7 +224,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Sync now
   $("sync-now-btn").addEventListener("click", async () => {
     $("sync-now-btn").disabled = true;
     showProgress();
