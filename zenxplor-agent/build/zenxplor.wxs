@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  zenxplor.wxs — WiX 3 installer for the ZenXplor Local Agent.
+
+  Build commands:
+    candle zenxplor.wxs
+    light  zenxplor.wixobj -o zenxplor.msi
+
+  Per-user install — does NOT require elevation.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+  <Product Id="*"
+           Name="ZenXplor Local Agent"
+           Language="1033"
+           Version="1.0.0"
+           Manufacturer="ZenXplor"
+           UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perUser"
+             Platform="x64"
+             Description="ZenXplor background indexing agent for Windows"
+             Manufacturer="ZenXplor" />
+
+    <!-- Per-user install (no UAC prompt) -->
+    <Property Id="MSIINSTALLPERUSER" Value="1" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ZenXplor Local Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- ─── Directory layout ─────────────────────────────────────────── -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="INSTALLFOLDER" Name="ZenXplor" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="ZenXplor" />
+      </Directory>
+    </Directory>
+
+    <!-- ─── Component: main executable ──────────────────────────────── -->
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="MainExecutable" Guid="B2C3D4E5-F6A7-8901-BCDE-F12345678901">
+        <File Id="ZenXplorAgentExe"
+              Source="..\dist\zenxplor-agent.exe"
+              KeyPath="yes"
+              Name="zenxplor-agent.exe" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- ─── Component: Start Menu shortcut ───────────────────────────── -->
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="StartMenuShortcut" Guid="C3D4E5F6-A7B8-9012-CDEF-123456789012">
+        <Shortcut Id="AppStartMenuShortcut"
+                  Name="ZenXplor Agent"
+                  Description="ZenXplor local file indexing agent"
+                  Target="[INSTALLFOLDER]zenxplor-agent.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="CleanupStartMenu"
+                      Directory="ApplicationProgramsFolder"
+                      On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\ZenXplor\Agent"
+                       Name="installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- ─── Feature ──────────────────────────────────────────────────── -->
+    <Feature Id="ProductFeature" Title="ZenXplor Local Agent" Level="1">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+  </Product>
+</Wix>
