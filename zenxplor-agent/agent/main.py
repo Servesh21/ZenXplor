@@ -28,11 +28,11 @@ if sys.platform == "win32":
     import ctypes
     ctypes.windll.kernel32.FreeConsole()
 
-from .config import get_roots, is_registered, mark_registered
-from .constants import APP_DATA_DIR, LOG_PATH, PORT, RESCAN_INTERVAL_HOURS
-from .indexer import full_scan, init_db
-from .server import run_server
-from .watcher import start_watchers
+from config import get_roots, is_registered, mark_registered
+from constants import APP_DATA_DIR, LOG_PATH, PORT, RESCAN_INTERVAL_HOURS
+from indexer import full_scan, init_db
+from server import run_server
+from watcher import start_watchers
 
 
 # ─── Logging setup ────────────────────────────────────────────────────────────

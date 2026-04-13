@@ -44,7 +44,7 @@
     <DirectoryRef Id="INSTALLFOLDER">
       <Component Id="MainExecutable" Guid="B2C3D4E5-F6A7-8901-BCDE-F12345678901">
         <File Id="ZenXplorAgentExe"
-              Source="..\dist\zenxplor-agent.exe"
+              Source="\dist\zenxplor-agent.exe"
               KeyPath="yes"
               Name="zenxplor-agent.exe" />
       </Component>

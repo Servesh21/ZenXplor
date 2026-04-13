@@ -26,5 +26,5 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,        # no terminal window
-    icon='../assets/icon.ico',
+    icon=None,
 )
