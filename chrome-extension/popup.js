@@ -210,8 +210,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!backendUrl) { $("settings-status").textContent = "Backend URL required."; return; }
     if (!jwtToken)   { $("settings-status").textContent = "JWT token required."; return; }
     await chrome.storage.local.set({ backendUrl, jwtToken });
-    $("settings-status").textContent = "✓ Saved";
-    setTimeout(() => { $("settings-status").textContent = ""; }, 2000);
+    $("settings-status").textContent = "✓ Saved — starting sync…";
+
+    // Kick off an immediate sync so the user doesn't have to wait an hour
+    const savedHandles = await getSavedHandles();
+    if (savedHandles.length) {
+      $("sync-now-btn").disabled = true;
+      showProgress();
+      await syncAll(({ message, percent }) => {
+        setStatus(message);
+        if (percent !== undefined) setProgress(percent);
+      });
+      $("sync-now-btn").disabled = false;
+      const updated = await chrome.storage.local.get("lastSync");
+      if (updated.lastSync) $("last-sync").textContent = `Last synced: ${updated.lastSync}`;
+    }
+    setTimeout(() => { $("settings-status").textContent = ""; }, 3000);
   });
 
   $("add-folder-btn").addEventListener("click", async () => {
@@ -219,6 +233,20 @@ document.addEventListener("DOMContentLoaded", async () => {
       const handle = await window.showDirectoryPicker({ mode: "read" });
       await saveHandle(handle.name, handle);
       await renderFolderList();
+
+      // Immediately index the newly added folder so the user sees results right away
+      const { backendUrl, jwtToken } = await chrome.storage.local.get(["backendUrl", "jwtToken"]);
+      if (backendUrl && jwtToken) {
+        $("sync-now-btn").disabled = true;
+        showProgress();
+        await syncAll(({ message, percent }) => {
+          setStatus(message);
+          if (percent !== undefined) setProgress(percent);
+        });
+        $("sync-now-btn").disabled = false;
+        const updated = await chrome.storage.local.get("lastSync");
+        if (updated.lastSync) $("last-sync").textContent = `Last synced: ${updated.lastSync}`;
+      }
     } catch (err) {
       if (err.name !== "AbortError") console.error(err);
     }

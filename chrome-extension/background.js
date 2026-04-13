@@ -96,11 +96,17 @@ async function runBackgroundSync() {
 
 // ─── Service worker lifecycle ─────────────────────────────────────────────────
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   chrome.alarms.create(ALARM_NAME, {
     delayInMinutes: ALARM_PERIOD_MINUTES,
     periodInMinutes: ALARM_PERIOD_MINUTES,
   });
+  // On first install, open the popup so the user is guided through setup
+  if (details.reason === "install") {
+    chrome.action.openPopup().catch(() => {
+      // openPopup() requires the browser window to be focused; silently ignore if not available
+    });
+  }
   console.log("ZenXplor Local Indexer installed. Auto-sync alarm set.");
 });
 
