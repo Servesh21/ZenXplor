@@ -5,11 +5,12 @@ import {
   FaFilter, FaTimes, FaFileAlt, FaFilePdf, FaFileWord, 
   FaFileImage, FaFolder, FaCheck, FaChevronDown,
   FaStar, FaSortAmountDown,
-  FaRegStar
+  FaRegStar, FaDesktop
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
+const AGENT_URL = "http://localhost:7832";
 
 interface FileItem {
   id: number;
@@ -20,27 +21,23 @@ interface FileItem {
   is_favorite: boolean;
 }
 
-interface BrowserIndexedEntry {
-  filename: string;
-  filepath: string;
-  is_folder: boolean;
-  filetype: string;
-  mime_type: string | null;
-  last_modified: number | null;
-}
-
-type PickerWindow = Window & {
-  showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
-};
-
-const browserHandleCache = new Map<string, FileSystemFileHandle>();
-
 const getFileExtension = (name: string): string => {
   const lastDotIndex = name.lastIndexOf(".");
   if (lastDotIndex <= 0 || lastDotIndex === name.length - 1) {
     return "unknown";
   }
   return name.slice(lastDotIndex + 1).toLowerCase();
+};
+
+/** Stable numeric ID derived from a file path (for agent results). */
+const pathToId = (fp: string): number => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < fp.length; i++) {
+    h ^= fp.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  // Negative range so it never clashes with positive DB ids
+  return -(h % 2_000_000_000 || 1);
 };
 
 const FileSearch: React.FC = () => {
@@ -63,8 +60,9 @@ const FileSearch: React.FC = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
-  // Upload-and-index state
-  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  // Windows Desktop Agent state
+  const [agentRunning, setAgentRunning] = useState(false);
+  const [agentScanning, setAgentScanning] = useState(false);
 
   const observer = useRef<IntersectionObserver | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +103,21 @@ const FileSearch: React.FC = () => {
     checkAuth();
   }, [navigate]);
 
+  // Poll agent health every 10 s so the indicator stays current
+  useEffect(() => {
+    const checkAgent = async () => {
+      try {
+        await axios.get(`${AGENT_URL}/health`, { timeout: 2000 });
+        setAgentRunning(true);
+      } catch {
+        setAgentRunning(false);
+      }
+    };
+    checkAgent();
+    const id = setInterval(checkAgent, 10_000);
+    return () => clearInterval(id);
+  }, []);
+
   // Fetch search results with filters
   const fetchFiles = async (newQuery = query, newOffset = offset) => {
     if (loading || (!newQuery.trim() && !serviceFilter && !fileTypeFilter) || !hasMore) return;
@@ -115,7 +128,33 @@ const FileSearch: React.FC = () => {
         withCredentials: true,
       });
       console.log("Search response:", response.data);
-      const newData = response.data.results;
+      let newData: FileItem[] = response.data.results;
+
+      // On fresh search, augment with agent-indexed local results
+      if (newOffset === 0 && agentRunning && newQuery.trim() &&
+          (!serviceFilter || serviceFilter === "local")) {
+        try {
+          const agentRes = await axios.get(`${AGENT_URL}/search`, {
+            params: { q: newQuery, limit: 50, filetype: fileTypeFilter || undefined },
+            timeout: 3000,
+          });
+          const seenPaths = new Set(newData.map((f) => f.filepath));
+          const agentItems: FileItem[] = (agentRes.data.results || [])
+            .filter((r: { filepath: string }) => !seenPaths.has(r.filepath))
+            .map((r: { filepath: string; filename: string }) => ({
+              id: pathToId(r.filepath),
+              filename: r.filename,
+              filepath: r.filepath,
+              storage_type: "local",
+              cloud_file_id: undefined,
+              is_favorite: false,
+            }));
+          newData = [...agentItems, ...newData];
+        } catch {
+          // Agent search failed — continue with backend results only
+        }
+      }
+
       setFiles((prev) => (newOffset === 0 ? newData : [...prev, ...newData]));
       setHasMore(response.data.has_more);
       setOffset(newOffset + LIMIT);
@@ -163,31 +202,29 @@ const FileSearch: React.FC = () => {
   );
 
   const handleDownload = async (filepath: string, filename: string) => {
-    if (filepath.startsWith("browser://")) {
-      const handle = browserHandleCache.get(filepath);
-      if (!handle) {
-        showToastNotification("File is not available in this browser session. Re-index folder.");
+    // Real local paths (e.g. C:\Users\...) — route through the Desktop Agent
+    if (!filepath.startsWith("upload://") && !filepath.startsWith("http")) {
+      if (!agentRunning) {
+        showToastNotification("ZenXplor Desktop Agent is not running. Cannot download local files.");
         return;
       }
       try {
-        const file = await handle.getFile();
-        const url = window.URL.createObjectURL(file);
+        const url = `${AGENT_URL}/download?filepath=${encodeURIComponent(filepath)}`;
         const link = document.createElement("a");
         link.href = url;
-        link.setAttribute("download", filename || file.name || "file");
+        link.setAttribute("download", filename);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
         showToastNotification(`Downloaded ${filename}`);
-        return;
       } catch (error) {
-        console.error("Failed browser-session download:", error);
+        console.error("Agent download failed:", error);
         showToastNotification("Failed to download file");
-        return;
       }
+      return;
     }
 
+    // Uploaded / cloud files — backend download
     try {
       const response = await axios.get(`http://localhost:5000/search/download-file?filepath=${encodeURIComponent(filepath)}`, {
         withCredentials: true,
@@ -209,23 +246,20 @@ const FileSearch: React.FC = () => {
   };
 
   const handleOpenFileLocation = async (filepath: string) => {
-    if (filepath.startsWith("browser://")) {
-      const handle = browserHandleCache.get(filepath);
-      if (!handle) {
-        showToastNotification("File is not available in this browser session. Re-index folder.");
+    // Real local paths — route through the Desktop Agent
+    if (!filepath.startsWith("upload://") && !filepath.startsWith("http")) {
+      if (!agentRunning) {
+        showToastNotification("ZenXplor Desktop Agent is not running. Cannot open local files.");
         return;
       }
       try {
-        const file = await handle.getFile();
-        const url = window.URL.createObjectURL(file);
-        window.open(url, "_blank", "noopener,noreferrer");
-        showToastNotification("Opened file preview in browser");
-        return;
+        await axios.post(`${AGENT_URL}/open`, { filepath }, { timeout: 5000 });
+        showToastNotification("Opening file location in Explorer");
       } catch (error) {
-        console.error("Failed browser-session open:", error);
-        showToastNotification("Failed to open file preview");
-        return;
+        console.error("Agent open failed:", error);
+        showToastNotification("Could not open file location");
       }
+      return;
     }
 
     try {
@@ -236,172 +270,30 @@ const FileSearch: React.FC = () => {
     }
   };
 
-  const indexBrowserSelectedFiles = async (entries: BrowserIndexedEntry[]) => {
-    if (!entries.length) {
-      showToastNotification("No files found in selected folder");
+  /** Trigger a full filesystem scan via the Desktop Agent. */
+  const handleAgentScan = async () => {
+    if (!agentRunning) {
+      showToastNotification("ZenXplor Desktop Agent is not running. Please install and start it first.");
       return;
     }
-
-    const chunkSize = 1000;
-    for (let i = 0; i < entries.length; i += chunkSize) {
-      const chunk = entries.slice(i, i + chunkSize);
-      await axios.post(
-        "http://localhost:5000/search/index-browser-files",
-        { files: chunk },
-        { withCredentials: true }
-      );
-    }
-  };
-
-  const scanDirectoryHandle = async (
-    rootHandle: FileSystemDirectoryHandle,
-    rootName: string
-  ): Promise<BrowserIndexedEntry[]> => {
-    const entries: BrowserIndexedEntry[] = [];
-    const queue: Array<{ handle: FileSystemDirectoryHandle; relativePath: string }> = [
-      { handle: rootHandle, relativePath: rootName }
-    ];
-
-    while (queue.length) {
-      const current = queue.shift();
-      if (!current) {
-        continue;
-      }
-      for await (const [name, childHandle] of current.handle.entries()) {
-        const nextPath = `${current.relativePath}/${name}`;
-        if (childHandle.kind === "directory") {
-          const directoryHandle = childHandle as FileSystemDirectoryHandle;
-          entries.push({
-            filename: name,
-            filepath: `browser://${nextPath}`,
-            is_folder: true,
-            filetype: "folder",
-            mime_type: null,
-            last_modified: null
-          });
-          queue.push({ handle: directoryHandle, relativePath: nextPath });
-        } else {
-          const fileHandle = childHandle as FileSystemFileHandle;
-          const file = await fileHandle.getFile();
-          const fileExtension = getFileExtension(name);
-          const browserPath = `browser://${nextPath}`;
-          browserHandleCache.set(browserPath, fileHandle);
-          entries.push({
-            filename: name,
-            filepath: browserPath,
-            is_folder: false,
-            filetype: fileExtension,
-            mime_type: file.type || null,
-            last_modified: file.lastModified || null
-          });
-        }
-      }
-    }
-
-    return entries;
-  };
-
-  const indexWithFileInputFallback = async () => {
-    return new Promise<void>((resolve, reject) => {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.multiple = true;
-      (input as HTMLInputElement & { webkitdirectory?: boolean }).webkitdirectory = true;
-      input.onchange = async () => {
-        try {
-          const list = Array.from(input.files || []);
-          const entries: BrowserIndexedEntry[] = list.map((file) => {
-            const relPath =
-              (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
-              file.name;
-            const ext = getFileExtension(file.name);
-            return {
-              filename: file.name,
-              filepath: `browser://${relPath}`,
-              is_folder: false,
-              filetype: ext,
-              mime_type: file.type || null,
-              last_modified: file.lastModified || null
-            };
-          });
-          await indexBrowserSelectedFiles(entries);
-          showToastNotification(`Indexed ${entries.length} files (fallback mode)`);
-          resolve();
-        } catch (error) {
-          console.error("Fallback indexing failed:", error);
-          reject(error);
-        }
-      };
-      input.click();
-    });
-  };
-
-  const handleIndex = async () => {
     setIndexingStatus("indexing");
+    setAgentScanning(true);
     try {
-      const pickerWindow = window as PickerWindow;
-      if (pickerWindow.showDirectoryPicker) {
-        const dirHandle = await pickerWindow.showDirectoryPicker();
-        browserHandleCache.clear();
-        const entries = await scanDirectoryHandle(dirHandle, dirHandle.name || "selected-folder");
-        await indexBrowserSelectedFiles(entries);
-        showToastNotification(`Indexed ${entries.length} browser files successfully`);
+      const res = await axios.post(`${AGENT_URL}/scan`, {}, { timeout: 5000 });
+      if (res.data.scanning) {
+        showToastNotification("Scan started — the agent is indexing your files in the background.");
+        setIndexingStatus("completed");
       } else {
-        await indexWithFileInputFallback();
+        showToastNotification(res.data.message || "Scan already running.");
+        setIndexingStatus("not_started");
       }
-      setIndexingStatus("completed");
-      setTimeout(() => setIndexingStatus("not_started"), 3000);
-    } catch (error) {
-      console.error("Indexing failed:", error);
+    } catch {
       setIndexingStatus("failed");
-      showToastNotification("Indexing failed. Please try again.");
+      showToastNotification("Failed to start scan. Is the Desktop Agent running?");
+    } finally {
+      setAgentScanning(false);
       setTimeout(() => setIndexingStatus("not_started"), 3000);
     }
-  };
-
-  /**
-   * Upload files to the server for durable indexing with full-text extraction.
-   * The server extracts text from TXT, PDF, DOCX, PPTX files and stores it in
-   * Elasticsearch so results survive page reloads and work on all devices.
-   */
-  const handleUploadAndIndex = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.multiple = true;
-    (input as HTMLInputElement & { webkitdirectory?: boolean }).webkitdirectory = true;
-    input.onchange = async () => {
-      const fileList = Array.from(input.files || []);
-      if (!fileList.length) return;
-
-      const FILES_PER_CHUNK = 50;
-      let indexed = 0;
-      setUploadProgress({ current: 0, total: fileList.length });
-
-      try {
-        for (let i = 0; i < fileList.length; i += FILES_PER_CHUNK) {
-          const chunk = fileList.slice(i, i + FILES_PER_CHUNK);
-          const formData = new FormData();
-          chunk.forEach((file) => {
-            formData.append("files", file, file.name);
-            const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-            formData.append(`paths[${file.name}]`, relPath);
-          });
-          await axios.post("http://localhost:5000/search/upload-and-index", formData, {
-            withCredentials: true,
-            headers: { "Content-Type": "multipart/form-data" },
-          });
-          indexed += chunk.length;
-          setUploadProgress({ current: indexed, total: fileList.length });
-        }
-        showToastNotification(`Uploaded & indexed ${indexed} files with content extraction`);
-      } catch (err) {
-        console.error("Upload indexing failed:", err);
-        showToastNotification("Upload indexing failed. Please try again.");
-      } finally {
-        setUploadProgress(null);
-      }
-    };
-    input.click();
   };
 
   const resetFilters = () => {
@@ -541,12 +433,23 @@ const FileSearch: React.FC = () => {
                   </svg>
                 </motion.button>
               </motion.div>
+
+              {/* Agent status indicator */}
+              <div
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 text-white text-sm"
+                title={agentRunning ? "ZenXplor Desktop Agent is running" : "ZenXplor Desktop Agent not detected"}
+              >
+                <FaDesktop size={14} />
+                <span className={`w-2 h-2 rounded-full ${agentRunning ? "bg-green-400" : "bg-red-400"}`} />
+                <span className="hidden sm:inline">{agentRunning ? "Agent" : "No Agent"}</span>
+              </div>
               
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={handleIndex}
-                disabled={indexingStatus === "indexing"}
+                onClick={handleAgentScan}
+                disabled={indexingStatus === "indexing" || agentScanning}
+                title={agentRunning ? "Trigger a full filesystem scan via the Desktop Agent" : "Install the ZenXplor Desktop Agent to scan local files"}
                 className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-sm font-medium shadow-lg ${
                   indexingStatus === "indexing" 
                     ? "bg-indigo-700 text-indigo-200" 
@@ -554,55 +457,23 @@ const FileSearch: React.FC = () => {
                       ? "bg-green-500 text-white" 
                       : indexingStatus === "failed" 
                         ? "bg-red-500 text-white" 
-                        : "bg-white text-indigo-700 hover:bg-indigo-50"
+                        : agentRunning
+                          ? "bg-white text-indigo-700 hover:bg-indigo-50"
+                          : "bg-white/30 text-white cursor-not-allowed"
                 }`}
               >
                 <FaSync className={indexingStatus === "indexing" ? "animate-spin" : ""} size={14} />
                 {indexingStatus === "indexing" 
-                  ? "Indexing..." 
+                  ? "Scanning..." 
                   : indexingStatus === "completed" 
-                    ? <><FaCheck className="mr-1" /> Indexed</> 
+                    ? <><FaCheck className="mr-1" /> Scan Started</> 
                     : indexingStatus === "failed" 
                       ? "Failed" 
-                      : "Index Files"}
-              </motion.button>
-
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleUploadAndIndex}
-                disabled={uploadProgress !== null}
-                title="Upload files to the server for durable full-text indexing (works on all devices)"
-                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-sm font-medium shadow-lg ${
-                  uploadProgress !== null
-                    ? "bg-indigo-700 text-indigo-200 cursor-not-allowed"
-                    : "bg-white text-indigo-700 hover:bg-indigo-50"
-                }`}
-              >
-                <FaFolderOpen size={14} />
-                {uploadProgress !== null
-                  ? `${uploadProgress.current}/${uploadProgress.total}`
-                  : "Upload & Index"}
+                      : "Scan Files"}
               </motion.button>
             </div>
           </div>
 
-          {/* Upload progress bar */}
-          {uploadProgress !== null && (
-            <div className="px-8 py-2 bg-indigo-50 dark:bg-indigo-900/30">
-              <div className="flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300 mb-1">
-                <span>Uploading &amp; extracting content…</span>
-                <span>{uploadProgress.current} / {uploadProgress.total} files</span>
-              </div>
-              <div className="w-full bg-indigo-200 dark:bg-indigo-800 rounded-full h-2">
-                <div
-                  className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%` }}
-                />
-              </div>
-            </div>
-          )}
-          
           {/* Search and Filters */}
           <div className="px-8 py-6 border-b border-gray-200 dark:border-gray-700">
             {/* Search Bar */}
@@ -728,8 +599,7 @@ const FileSearch: React.FC = () => {
                         className="w-full border-0 rounded-lg p-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                       >
                         <option value="">All Services</option>
-                        <option value="local">Local Storage</option>
-                        <option value="local_browser">Browser Local Session</option>
+                        <option value="local">Local Storage (Agent)</option>
                         <option value="local_upload">Uploaded &amp; Indexed</option>
                         <option value="google_drive">Google Drive</option>
                         <option value="dropbox">Dropbox</option>
