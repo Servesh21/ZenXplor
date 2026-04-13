@@ -151,7 +151,7 @@
 <header>
   <div>
     <h1>ZenXplor Local Indexer</h1>
-    <p>Index local folders without installing a desktop app</p>
+    <p>Index your whole computer — no desktop app needed</p>
   </div>
 </header>
 
@@ -171,15 +171,20 @@
   <div id="settings-status" style="font-size:12px;color:#22c55e;margin-top:6px;"></div>
 </div>
 
-<!-- Watched Folders -->
+<!-- Drives to Scan -->
 <div class="section">
-  <label>Watched Folders</label>
+  <label>Drives to Scan</label>
+  <div style="font-size:12px;color:#475569;margin-bottom:8px;">
+    To index your whole computer, click <strong>Add Drive</strong> and select your root drive
+    (<code>C:\</code> on Windows · <code>/</code> or <code>/Users/you</code> on Mac/Linux).
+    Add more drives if you have multiple (e.g. <code>D:\</code>).
+  </div>
   <ul class="folder-list" id="folder-list">
-    <li style="color:#94a3b8;border:none;background:none;font-size:12px;">No folders added yet</li>
+    <li style="color:#94a3b8;border:none;background:none;font-size:12px;">No drives added yet</li>
   </ul>
   <div class="row">
-    <button class="btn btn-secondary" id="add-folder-btn">+ Add Folder</button>
-    <button class="btn btn-primary" id="sync-now-btn">Sync Now</button>
+    <button class="btn btn-secondary" id="add-folder-btn">🖥️ Add Drive</button>
+    <button class="btn btn-primary" id="sync-now-btn">Scan Now</button>
   </div>
 </div>
 
@@ -194,9 +199,9 @@
 
 <!-- Auto-sync info -->
 <div class="section">
-  <label>Auto Re-index</label>
+  <label>Auto Re-scan</label>
   <div style="font-size:12px;color:#475569;">
-    Folders are automatically re-indexed every hour to pick up new and changed files.
+    Added drives are automatically re-scanned every hour to pick up new and changed files.
   </div>
   <div id="last-sync"></div>
 </div>

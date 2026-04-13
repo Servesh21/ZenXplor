@@ -3,14 +3,17 @@
  *
  * Flow:
  *  1. User enters their ZenXplor backend URL + JWT access token once.
- *  2. User adds one or more local folders to watch (via showDirectoryPicker).
- *  3. "Sync Now" (or the hourly alarm) scans every watched folder and uploads
- *     files to the backend in small chunks.
+ *  2. User adds one or more drives to scan (via showDirectoryPicker).
+ *     → On Windows: select C:\, D:\, etc.
+ *     → On macOS: select / or /Users/your-name
+ *     → On Linux: select /
+ *  3. "Scan Now" (or the hourly alarm) recursively scans every added drive and
+ *     uploads files to the backend in small chunks.
  *
- * Files are sent to POST /search/upload-and-index (multipart) so the server
- * can extract text content for PDF / DOCX / PPTX / plain-text files.
+ * System directories (Windows, Program Files, proc, sys, etc.) are automatically
+ * skipped so only your personal files are indexed.
  *
- * Folder *handles* are kept in the extension's own IndexedDB so they survive
+ * Drive *handles* are kept in the extension's own IndexedDB so they survive
  * popup close / browser restart (Chrome persists FileSystemDirectoryHandle
  * objects stored in IndexedDB for extensions).
  */
@@ -106,13 +109,13 @@ async function syncAll(onProgress) {
 
   const savedHandles = await getSavedHandles();
   if (!savedHandles.length) {
-    onProgress({ status: "error", message: "No folders to sync. Add a folder first." });
+    onProgress({ status: "error", message: "No drives to scan. Add a drive first." });
     return;
   }
 
   const allFiles = [];
 
-  onProgress({ status: "scanning", message: "Scanning folders…", percent: 0 });
+  onProgress({ status: "scanning", message: "Scanning drives…", percent: 0 });
   for (const { name, handle } of savedHandles) {
     const perm = await handle.queryPermission({ mode: "read" });
     if (perm !== "granted") {
@@ -129,7 +132,7 @@ async function syncAll(onProgress) {
 
   const total = allFiles.length;
   if (total === 0) {
-    onProgress({ status: "done", message: "No files found in watched folders.", percent: 100 });
+    onProgress({ status: "done", message: "No files found in added drives.", percent: 100 });
     return;
   }
 
@@ -174,7 +177,7 @@ async function renderFolderList() {
   const ul = $("folder-list");
   ul.innerHTML = "";
   if (!saved.length) {
-    ul.innerHTML = '<li style="color:#94a3b8;border:none;background:none;font-size:12px;">No folders added yet</li>';
+    ul.innerHTML = '<li style="color:#94a3b8;border:none;background:none;font-size:12px;">No drives added yet</li>';
     return;
   }
   for (const { name } of saved) {
@@ -234,7 +237,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       await saveHandle(handle.name, handle);
       await renderFolderList();
 
-      // Immediately index the newly added folder so the user sees results right away
+      // Immediately index the newly added drive so the user sees results right away
       const { backendUrl, jwtToken } = await chrome.storage.local.get(["backendUrl", "jwtToken"]);
       if (backendUrl && jwtToken) {
         $("sync-now-btn").disabled = true;

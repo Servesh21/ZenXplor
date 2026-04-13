@@ -9,8 +9,18 @@ export const TEXT_EXTENSIONS = new Set([
 ]);
 
 export const EXCLUDE_DIRS = new Set([
-  "node_modules", ".git", ".venv", ".gradle", "AppData", ".cache",
-  ".config", ".idea", ".vscode", "Library", "__pycache__",
+  // Dev / tooling
+  "node_modules", ".git", ".venv", ".gradle", ".idea", ".vscode", "__pycache__",
+  // User-level caches / config
+  "AppData", ".cache", ".config", ".local", ".npm", ".yarn",
+  // macOS system
+  "Library", "System", "private", "cores",
+  // Windows system
+  "Windows", "Program Files", "Program Files (x86)", "ProgramData",
+  "$Recycle.Bin", "$RECYCLE.BIN", "System Volume Information",
+  "Recovery", "PerfLogs", "MSOCache",
+  // Linux / Unix system
+  "proc", "sys", "dev", "run", "snap", "boot", "lost+found",
 ]);
 
 export const CHUNK_SIZE = 20;   // files per multipart request
