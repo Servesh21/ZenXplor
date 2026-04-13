@@ -148,7 +148,12 @@ def start_watchers(roots: list[str]) -> list[Observer]:
     new_observers: list[Observer] = []
 
     for root in roots:
+        # Resolve and verify path components to guard against traversal
         resolved_root = os.path.realpath(root)
+        parts = resolved_root.replace("\\", "/").split("/")
+        if any(part in EXCLUDE_DIRS for part in parts):
+            logger.warning("Watcher skipped — excluded path: %s", root)
+            continue
         if not os.path.isdir(resolved_root):
             logger.warning("Watcher skipped — path does not exist: %s", root)
             continue

@@ -22,6 +22,7 @@ from .constants import EXCLUDE_DIRS, PORT
 from .indexer import (
     delete_file,
     full_scan,
+    get_db_connection,
     get_stats,
     is_scanning,
     search_files,
@@ -70,6 +71,19 @@ def _path_is_safe(filepath: str) -> bool:
     """Return False if filepath sits inside any EXCLUDE_DIRS component."""
     parts = filepath.replace("\\", "/").split("/")
     return not any(part in EXCLUDE_DIRS for part in parts)
+
+
+def _is_indexed(filepath: str) -> bool:
+    """Return True only when this exact filepath was indexed by the agent."""
+    try:
+        conn = get_db_connection()
+        row = conn.execute(
+            "SELECT 1 FROM files WHERE filepath = ? LIMIT 1", (filepath,)
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception:
+        return False
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -135,6 +149,8 @@ def open_file() -> Any:
     filepath, safe = _resolve_and_validate(filepath)
     if not safe:
         return jsonify({"error": "Access to system paths is not allowed"}), 403
+    if not _is_indexed(filepath):
+        return jsonify({"error": "File is not in the index"}), 403
     if not os.path.exists(filepath):
         return jsonify({"error": "File not found"}), 404
 
@@ -158,6 +174,8 @@ def download_file() -> Any:
     filepath, safe = _resolve_and_validate(filepath)
     if not safe:
         return jsonify({"error": "Access to system paths is not allowed"}), 403
+    if not _is_indexed(filepath):
+        return jsonify({"error": "File is not in the index"}), 403
     if not os.path.isfile(filepath):
         return jsonify({"error": "File not found or is a directory"}), 404
 
