@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['../agent/main.py'],
-    pathex=[],
+    ['../run.py'],
+    pathex=['..'],
     binaries=[],
     datas=[],
     hiddenimports=['watchdog.observers.winapi'],

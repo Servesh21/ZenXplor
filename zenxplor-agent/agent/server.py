@@ -10,6 +10,7 @@ Security model:
 
 import logging
 import os
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -36,10 +37,8 @@ app = Flask(__name__)
 CORS(
     app,
     origins=[
-        "http://localhost:5173",    # Vite dev server
-        "http://localhost:3000",    # CRA dev server
-        "https://zenxplor.com",     # production
-        "https://app.zenxplor.com", # production app subdomain
+        re.compile(r"http://localhost:\d+"),  # any local dev server
+        re.compile(r"https://.*"),            # any HTTPS-deployed frontend
     ],
 )
 
