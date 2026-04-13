@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import dropbox
 from dropbox.exceptions import AuthError
 from sqlalchemy.dialects.postgresql import insert
+from werkzeug.utils import secure_filename
 
 import time
 from models import CloudStorageAccount
@@ -380,6 +381,65 @@ def sanitize_browser_filepath(path):
     if len(cleaned) > 512:
         return None
     return cleaned
+
+
+# ---------------------------------------------------------------------------
+# Text extraction helpers (used by upload-and-index)
+# ---------------------------------------------------------------------------
+
+TEXT_EXTENSIONS = {
+    "txt", "md", "rst", "csv", "log", "py", "js", "ts", "jsx", "tsx",
+    "html", "htm", "css", "json", "xml", "yaml", "yml", "toml", "ini",
+    "cfg", "sh", "bat", "c", "cpp", "h", "java", "rb", "go", "rs",
+}
+
+MAX_CONTENT_BYTES = 50_000   # 50 KB plain-text read cap
+MAX_CONTENT_SNIPPET = 10_000  # characters stored in Elasticsearch
+
+
+def extract_text_from_file(file_obj, filetype: str) -> str:
+    """
+    Extract a text snippet from an uploaded file object.
+    Returns an empty string if extraction is not supported or fails.
+    """
+    try:
+        if filetype in TEXT_EXTENSIONS:
+            raw = file_obj.read(MAX_CONTENT_BYTES)
+            return raw.decode("utf-8", errors="replace")[:MAX_CONTENT_SNIPPET]
+
+        if filetype == "pdf":
+            import PyPDF2
+            reader = PyPDF2.PdfReader(file_obj)
+            parts = []
+            for page in reader.pages[:30]:
+                text = page.extract_text()
+                if text:
+                    parts.append(text)
+                if sum(len(p) for p in parts) >= MAX_CONTENT_SNIPPET:
+                    break
+            return "\n".join(parts)[:MAX_CONTENT_SNIPPET]
+
+        if filetype in ("docx", "doc"):
+            import docx as docx_lib
+            doc = docx_lib.Document(file_obj)
+            text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+            return text[:MAX_CONTENT_SNIPPET]
+
+        if filetype == "pptx":
+            import pptx as pptx_lib
+            prs = pptx_lib.Presentation(file_obj)
+            parts = []
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        parts.append(shape.text)
+            return "\n".join(parts)[:MAX_CONTENT_SNIPPET]
+
+    except Exception as e:
+        logging.warning(f"Text extraction failed (type={filetype}): {e}")
+
+    return ""
+
 
 def index_files_worker(user_id, base_directory):
     """Index all folders and files recursively in a given drive/directory with prefix search support."""
@@ -842,6 +902,119 @@ def index_browser_files():
 
 
 
+@search_bp.route("/upload-and-index", methods=["POST"])
+@jwt_required()
+def upload_and_index():
+    """
+    Accept multipart file uploads, extract text content, and index metadata +
+    content in Elasticsearch.  Files are NOT stored on the server — only
+    metadata and extracted text snippets are persisted so users can search by
+    content.  Works on every platform (desktop and mobile) without any
+    additional software.
+    """
+    user_id = get_jwt_identity()
+    uploaded_files = request.files.getlist("files")
+
+    if not uploaded_files:
+        return jsonify({"error": "No files provided"}), 400
+
+    if len(uploaded_files) > 500:
+        return jsonify({"error": "Too many files in a single request (max 500)"}), 400
+
+    session = scoped_session(sessionmaker(bind=db.engine))
+    db_rows = []
+    es_docs = []
+    skipped = 0
+
+    try:
+        for f in uploaded_files:
+            raw_name = f.filename or ""
+            filename = secure_filename(raw_name)
+            if not filename:
+                skipped += 1
+                continue
+
+            _, ext = os.path.splitext(filename)
+            filetype = ext.lower().strip(".") or "unknown"
+
+            # Use the original relative path supplied by the browser when
+            # available (webkitRelativePath via a same-name form field),
+            # otherwise fall back to just the filename.
+            relative_path = (request.form.get(f"paths[{raw_name}]") or filename).strip("/")
+            filepath = f"upload://{user_id}/{relative_path}"
+            if len(filepath) > 512:
+                filepath = f"upload://{user_id}/{filename}"
+
+            content_snippet = extract_text_from_file(f.stream, filetype)
+            mime_type = f.mimetype or None
+
+            db_rows.append({
+                "user_id": user_id,
+                "filename": filename[:255],
+                "filepath": filepath[:512],
+                "is_folder": False,
+                "filetype": filetype[:500],
+                "storage_type": "local_upload",
+                "mime_type": (mime_type[:1024] if mime_type else None),
+                "last_modified": datetime.now(timezone.utc),
+                "is_favorite": False,
+            })
+
+            es_docs.append({
+                "id": filepath[:512],
+                "user_id": user_id,
+                "filename": filename[:255],
+                "filename_ngram": filename.lower()[:255],
+                "filepath": filepath[:512],
+                "is_folder": False,
+                "filetype": filetype[:500],
+                "storage_type": "local_upload",
+                "is_favorite": False,
+                "file_content": content_snippet,
+            })
+
+        if not db_rows:
+            return jsonify({"error": "No valid files to index"}), 400
+
+        for row in db_rows:
+            stmt = insert(IndexedFile).values(**row).on_conflict_do_update(
+                index_elements=["filepath"],
+                set_={
+                    "filename": row["filename"],
+                    "filetype": row["filetype"],
+                    "storage_type": row["storage_type"],
+                    "mime_type": row["mime_type"],
+                    "last_modified": row["last_modified"],
+                },
+            )
+            session.execute(stmt)
+
+        session.commit()
+
+        if es and check_elasticsearch():
+            helpers.bulk(
+                es,
+                [
+                    {"_index": "file_index", "_id": doc["id"], "_source": doc}
+                    for doc in es_docs
+                ],
+            )
+
+        return jsonify({
+            "message": "Files uploaded and indexed successfully",
+            "indexed_count": len(db_rows),
+            "skipped_count": skipped,
+        }), 200
+
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Upload indexing failed: {str(e)}")
+        return jsonify({"error": "Failed to upload and index files"}), 500
+    finally:
+        session.remove()
+
+
+
 @search_bp.route("/index-status", methods=["GET"])
 @jwt_required()
 def get_index_status():
@@ -921,6 +1094,14 @@ def search_files():
                             "case_insensitive": True
                         }
                     }
+                },
+                {
+                    "match": {
+                        "file_content": {
+                            "query": query,
+                            "fuzziness": "AUTO"
+                        }
+                    }
                 }
             ]
 
@@ -940,7 +1121,7 @@ def search_files():
         if service_filter:
             if service_filter == "local":
                 es_query["query"]["bool"]["filter"].append({
-                    "terms": {"storage_type": ["local", "local_browser"]}
+                    "terms": {"storage_type": ["local", "local_browser", "local_upload"]}
                 })
             else:
                 es_query["query"]["bool"]["filter"].append({
@@ -976,7 +1157,11 @@ def search_files():
                 filters.append(IndexedFile.filename.ilike(f"%{query.strip('*')}%"))
             if service_filter:
                 if service_filter == "local":
-                    filters.append(or_(IndexedFile.storage_type == "local", IndexedFile.storage_type == "local_browser"))
+                    filters.append(or_(
+                        IndexedFile.storage_type == "local",
+                        IndexedFile.storage_type == "local_browser",
+                        IndexedFile.storage_type == "local_upload",
+                    ))
                 else:
                     filters.append(IndexedFile.storage_type == service_filter)
             if filetype_filter:

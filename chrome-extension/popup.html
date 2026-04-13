@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ZenXplor Local Indexer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 340px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+    }
+
+    header {
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: white;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    header h1 { font-size: 15px; font-weight: 700; }
+    header p  { font-size: 11px; opacity: 0.85; margin-top: 2px; }
+
+    .section {
+      padding: 14px 16px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      margin-bottom: 6px;
+    }
+
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: #6366f1; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary { background: #6366f1; color: white; }
+    .btn-primary:not(:disabled):hover { background: #4f46e5; }
+
+    .btn-secondary { background: #e2e8f0; color: #334155; }
+    .btn-secondary:not(:disabled):hover { background: #cbd5e1; }
+
+    .btn-danger { background: #fee2e2; color: #b91c1c; }
+    .btn-danger:not(:disabled):hover { background: #fecaca; }
+
+    .folder-list {
+      list-style: none;
+      margin-top: 8px;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .folder-list li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 8px;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 5px;
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .folder-list li span { 
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 220px;
+    }
+
+    .folder-list li button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #94a3b8;
+      font-size: 14px;
+      flex-shrink: 0;
+      padding: 0 2px;
+    }
+    .folder-list li button:hover { color: #ef4444; }
+
+    #progress-section { display: none; }
+
+    .progress-bar-wrap {
+      background: #e2e8f0;
+      border-radius: 4px;
+      height: 6px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: #6366f1;
+      border-radius: 4px;
+      transition: width 0.3s;
+    }
+
+    #status-text {
+      font-size: 12px;
+      color: #475569;
+      margin-top: 6px;
+      min-height: 16px;
+    }
+
+    .row { display: flex; gap: 8px; margin-top: 10px; }
+
+    #last-sync {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>ZenXplor Local Indexer</h1>
+    <p>Index local folders without installing a desktop app</p>
+  </div>
+</header>
+
+<!-- Settings -->
+<div class="section">
+  <label for="backend-url">Backend URL</label>
+  <input type="text" id="backend-url" placeholder="http://localhost:5000" />
+
+  <div style="margin-top:10px">
+    <label for="jwt-token">JWT Token (from ZenXplor login)</label>
+    <input type="password" id="jwt-token" placeholder="Paste your access token here" />
+  </div>
+
+  <div class="row">
+    <button class="btn btn-primary" id="save-settings-btn">Save Settings</button>
+  </div>
+  <div id="settings-status" style="font-size:12px;color:#22c55e;margin-top:6px;"></div>
+</div>
+
+<!-- Watched Folders -->
+<div class="section">
+  <label>Watched Folders</label>
+  <ul class="folder-list" id="folder-list">
+    <li style="color:#94a3b8;border:none;background:none;font-size:12px;">No folders added yet</li>
+  </ul>
+  <div class="row">
+    <button class="btn btn-secondary" id="add-folder-btn">+ Add Folder</button>
+    <button class="btn btn-primary" id="sync-now-btn">Sync Now</button>
+  </div>
+</div>
+
+<!-- Progress -->
+<div class="section" id="progress-section">
+  <label>Indexing Progress</label>
+  <div id="status-text">Starting…</div>
+  <div class="progress-bar-wrap">
+    <div class="progress-bar-fill" id="progress-bar" style="width:0%"></div>
+  </div>
+</div>
+
+<!-- Auto-sync info -->
+<div class="section">
+  <label>Auto Re-index</label>
+  <div style="font-size:12px;color:#475569;">
+    Folders are automatically re-indexed every hour to pick up new and changed files.
+  </div>
+  <div id="last-sync"></div>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>

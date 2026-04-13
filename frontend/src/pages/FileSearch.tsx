@@ -63,6 +63,9 @@ const FileSearch: React.FC = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
+  // Upload-and-index state
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+
   const observer = useRef<IntersectionObserver | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -356,6 +359,51 @@ const FileSearch: React.FC = () => {
     }
   };
 
+  /**
+   * Upload files to the server for durable indexing with full-text extraction.
+   * The server extracts text from TXT, PDF, DOCX, PPTX files and stores it in
+   * Elasticsearch so results survive page reloads and work on all devices.
+   */
+  const handleUploadAndIndex = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    (input as HTMLInputElement & { webkitdirectory?: boolean }).webkitdirectory = true;
+    input.onchange = async () => {
+      const fileList = Array.from(input.files || []);
+      if (!fileList.length) return;
+
+      const CHUNK = 50; // files per request
+      let indexed = 0;
+      setUploadProgress({ current: 0, total: fileList.length });
+
+      try {
+        for (let i = 0; i < fileList.length; i += CHUNK) {
+          const chunk = fileList.slice(i, i + CHUNK);
+          const formData = new FormData();
+          chunk.forEach((file) => {
+            formData.append("files", file, file.name);
+            const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+            formData.append(`paths[${file.name}]`, relPath);
+          });
+          await axios.post("http://localhost:5000/search/upload-and-index", formData, {
+            withCredentials: true,
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          indexed += chunk.length;
+          setUploadProgress({ current: indexed, total: fileList.length });
+        }
+        showToastNotification(`Uploaded & indexed ${indexed} files with content extraction`);
+      } catch (err) {
+        console.error("Upload indexing failed:", err);
+        showToastNotification("Upload indexing failed. Please try again.");
+      } finally {
+        setUploadProgress(null);
+      }
+    };
+    input.click();
+  };
+
   const resetFilters = () => {
     setServiceFilter("");
     setFileTypeFilter("");
@@ -518,8 +566,42 @@ const FileSearch: React.FC = () => {
                       ? "Failed" 
                       : "Index Files"}
               </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleUploadAndIndex}
+                disabled={uploadProgress !== null}
+                title="Upload files to the server for durable full-text indexing (works on all devices)"
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-sm font-medium shadow-lg ${
+                  uploadProgress !== null
+                    ? "bg-indigo-700 text-indigo-200 cursor-not-allowed"
+                    : "bg-white text-indigo-700 hover:bg-indigo-50"
+                }`}
+              >
+                <FaFolderOpen size={14} />
+                {uploadProgress !== null
+                  ? `${uploadProgress.current}/${uploadProgress.total}`
+                  : "Upload & Index"}
+              </motion.button>
             </div>
           </div>
+
+          {/* Upload progress bar */}
+          {uploadProgress !== null && (
+            <div className="px-8 py-2 bg-indigo-50 dark:bg-indigo-900/30">
+              <div className="flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300 mb-1">
+                <span>Uploading &amp; extracting content…</span>
+                <span>{uploadProgress.current} / {uploadProgress.total} files</span>
+              </div>
+              <div className="w-full bg-indigo-200 dark:bg-indigo-800 rounded-full h-2">
+                <div
+                  className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
           
           {/* Search and Filters */}
           <div className="px-8 py-6 border-b border-gray-200 dark:border-gray-700">
@@ -648,6 +730,7 @@ const FileSearch: React.FC = () => {
                         <option value="">All Services</option>
                         <option value="local">Local Storage</option>
                         <option value="local_browser">Browser Local Session</option>
+                        <option value="local_upload">Uploaded &amp; Indexed</option>
                         <option value="google_drive">Google Drive</option>
                         <option value="dropbox">Dropbox</option>
                         <option value="google_photos">Google Photos</option>
