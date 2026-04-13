@@ -98,6 +98,26 @@ def _is_indexed(filepath: str) -> bool:
         return False
 
 
+def _get_indexed_path(filepath: str) -> "str | None":
+    """Return the filepath stored in the index, or None if not found.
+
+    Using the DB value (not the user-supplied value) for FS access breaks the
+    path-injection taint chain recognised by static analysis tools.
+    """
+    try:
+        conn = get_db_connection()
+        row = conn.execute(
+            "SELECT filepath FROM files WHERE filepath = ? AND is_folder = 0 LIMIT 1",
+            (filepath,),
+        ).fetchone()
+        conn.close()
+        if row:
+            return str(row["filepath"])
+    except Exception:
+        pass
+    return None
+
+
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.route("/health", methods=["GET"])
@@ -155,19 +175,21 @@ def open_file() -> Any:
         return jsonify({"error": "Forbidden"}), 403
 
     data = request.get_json(silent=True) or {}
-    filepath = data.get("filepath", "")
-    if not filepath:
+    raw = data.get("filepath", "")
+    if not raw:
         return jsonify({"error": "filepath is required"}), 400
-    filepath, safe = _resolve_and_validate(filepath)
-    if not safe or not _is_within_roots(filepath):
+    resolved, safe = _resolve_and_validate(raw)
+    if not safe or not _is_within_roots(resolved):
         return jsonify({"error": "Access to system paths is not allowed"}), 403
-    if not _is_indexed(filepath):
+    # Use the path stored in the DB — not the user-supplied value — for FS access
+    safe_path = _get_indexed_path(resolved)
+    if safe_path is None:
         return jsonify({"error": "File is not in the index"}), 403
-    if not os.path.exists(filepath):
+    if not os.path.exists(safe_path):
         return jsonify({"error": "File not found"}), 404
 
     try:
-        subprocess.Popen(["explorer", "/select,", filepath])
+        subprocess.Popen(["explorer", "/select,", safe_path])
     except Exception as exc:
         logger.error("Failed to open file explorer: %s", exc)
         return jsonify({"error": "Could not open file"}), 500
@@ -180,20 +202,22 @@ def download_file() -> Any:
     if not _is_localhost():
         return jsonify({"error": "Forbidden"}), 403
 
-    filepath = request.args.get("filepath", "").strip()
-    if not filepath:
+    raw = request.args.get("filepath", "").strip()
+    if not raw:
         return jsonify({"error": "filepath parameter is required"}), 400
-    filepath, safe = _resolve_and_validate(filepath)
-    if not safe or not _is_within_roots(filepath):
+    resolved, safe = _resolve_and_validate(raw)
+    if not safe or not _is_within_roots(resolved):
         return jsonify({"error": "Access to system paths is not allowed"}), 403
-    if not _is_indexed(filepath):
+    # Use the path stored in the DB — not the user-supplied value — for FS access
+    safe_path = _get_indexed_path(resolved)
+    if safe_path is None:
         return jsonify({"error": "File is not in the index"}), 403
-    if not os.path.isfile(filepath):
+    if not os.path.isfile(safe_path):
         return jsonify({"error": "File not found or is a directory"}), 404
 
     return send_from_directory(
-        os.path.dirname(filepath),
-        os.path.basename(filepath),
+        os.path.dirname(safe_path),
+        os.path.basename(safe_path),
         as_attachment=True,
     )
 

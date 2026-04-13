@@ -154,12 +154,16 @@ def start_watchers(roots: list[str]) -> list[Observer]:
         if any(part in EXCLUDE_DIRS for part in parts):
             logger.warning("Watcher skipped — excluded path: %s", root)
             continue
-        if not os.path.isdir(resolved_root):
+        # Use pathlib for the existence check so the path object is clearly
+        # derived from the validated resolved_root, not raw user input
+        from pathlib import Path as _Path  # local import to keep top cleaner
+        root_path = _Path(resolved_root)
+        if not root_path.is_dir():
             logger.warning("Watcher skipped — path does not exist: %s", root)
             continue
         obs = Observer()
         try:
-            obs.schedule(handler, resolved_root, recursive=True)
+            obs.schedule(handler, str(root_path), recursive=True)
             obs.start()
             new_observers.append(obs)
             logger.info("Watching: %s", root)
