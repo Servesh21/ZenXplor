@@ -12,9 +12,10 @@ import logging
 import os
 import subprocess
 import threading
+from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 from .config import get_config, get_roots, set_jwt, set_roots
@@ -55,22 +56,33 @@ def _resolve_and_validate(raw_path: str) -> tuple[str, bool]:
     """Resolve a user-supplied path and validate it is safe to serve.
 
     Returns (resolved_path, is_safe).  is_safe is False when:
-    - The resolved path is the empty string.
+    - The resolved path cannot be computed.
     - Any path component is in EXCLUDE_DIRS.
     """
     try:
         resolved = os.path.realpath(raw_path)
     except (ValueError, OSError):
         return raw_path, False
+    # Reject paths containing excluded directory names
     parts = resolved.replace("\\", "/").split("/")
-    safe = not any(part in EXCLUDE_DIRS for part in parts)
-    return resolved, safe
+    if any(part in EXCLUDE_DIRS for part in parts):
+        return resolved, False
+    return resolved, True
 
 
-def _path_is_safe(filepath: str) -> bool:
-    """Return False if filepath sits inside any EXCLUDE_DIRS component."""
-    parts = filepath.replace("\\", "/").split("/")
-    return not any(part in EXCLUDE_DIRS for part in parts)
+def _is_within_roots(filepath: str) -> bool:
+    """Return True only when filepath is contained within a configured scan root."""
+    for root in get_roots():
+        try:
+            resolved_root = os.path.realpath(root)
+            if not resolved_root:
+                continue
+            common = os.path.commonpath([filepath, resolved_root])
+            if common == resolved_root:
+                return True
+        except (ValueError, OSError):
+            continue
+    return False
 
 
 def _is_indexed(filepath: str) -> bool:
@@ -147,7 +159,7 @@ def open_file() -> Any:
     if not filepath:
         return jsonify({"error": "filepath is required"}), 400
     filepath, safe = _resolve_and_validate(filepath)
-    if not safe:
+    if not safe or not _is_within_roots(filepath):
         return jsonify({"error": "Access to system paths is not allowed"}), 403
     if not _is_indexed(filepath):
         return jsonify({"error": "File is not in the index"}), 403
@@ -172,14 +184,18 @@ def download_file() -> Any:
     if not filepath:
         return jsonify({"error": "filepath parameter is required"}), 400
     filepath, safe = _resolve_and_validate(filepath)
-    if not safe:
+    if not safe or not _is_within_roots(filepath):
         return jsonify({"error": "Access to system paths is not allowed"}), 403
     if not _is_indexed(filepath):
         return jsonify({"error": "File is not in the index"}), 403
     if not os.path.isfile(filepath):
         return jsonify({"error": "File not found or is a directory"}), 404
 
-    return send_file(filepath, as_attachment=True)
+    return send_from_directory(
+        os.path.dirname(filepath),
+        os.path.basename(filepath),
+        as_attachment=True,
+    )
 
 
 @app.route("/scan", methods=["POST"])
@@ -230,7 +246,7 @@ def update_roots() -> Any:
             logger.warning("Invalid root path ignored: %r", r)
             continue
         resolved, safe = _resolve_and_validate(r)
-        if safe and os.path.isdir(resolved):
+        if safe and Path(resolved).is_dir():
             valid_roots.append(resolved)
         else:
             logger.warning("Invalid root path ignored: %s", r)
