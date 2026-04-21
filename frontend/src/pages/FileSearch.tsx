@@ -1,3 +1,4 @@
+import { BACKEND_URL } from "../api";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
 import { 
@@ -86,7 +87,7 @@ const FileSearch: React.FC = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const response = await axios.get("http://localhost:5000/auth/check-auth", { 
+        const response = await axios.get(`${BACKEND_URL}/auth/check-auth`, { 
           withCredentials: true 
         });
         
@@ -123,7 +124,7 @@ const FileSearch: React.FC = () => {
     if (loading || (!newQuery.trim() && !serviceFilter && !fileTypeFilter) || !hasMore) return;
     setLoading(true);
     try {
-      const response = await axios.get("http://localhost:5000/search/search-files", {
+      const response = await axios.get(`${BACKEND_URL}/search/search-files`, {
         params: { q: newQuery, offset: newOffset, limit: LIMIT, service: serviceFilter, filetype: fileTypeFilter },
         withCredentials: true,
       });
@@ -226,7 +227,7 @@ const FileSearch: React.FC = () => {
 
     // Uploaded / cloud files — backend download
     try {
-      const response = await axios.get(`http://localhost:5000/search/download-file?filepath=${encodeURIComponent(filepath)}`, {
+      const response = await axios.get(`${BACKEND_URL}/search/download-file?filepath=${encodeURIComponent(filepath)}`, {
         withCredentials: true,
         responseType: "blob",
       });
@@ -263,7 +264,7 @@ const FileSearch: React.FC = () => {
     }
 
     try {
-      await axios.post("http://localhost:5000/search/open-file", { filepath }, { withCredentials: true });
+      await axios.post("${BACKEND_URL}/search/open-file", { filepath }, { withCredentials: true });
       showToastNotification("Opening file location");
     } catch {
       showToastNotification("Opening file location");
@@ -279,6 +280,26 @@ const FileSearch: React.FC = () => {
     setIndexingStatus("indexing");
     setAgentScanning(true);
     try {
+      // Step 1: Re-fetch a fresh token from the backend and push it to the agent.
+      // This is essential — without a valid token the agent silently skips all sync.
+      try {
+        const authRes = await fetch(`${BACKEND_URL}/auth/check-auth`, { credentials: "include" });
+        if (authRes.ok) {
+          const authData = await authRes.json();
+          if (authData.authenticated && authData.token) {
+            await fetch(`${AGENT_URL}/auth`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jwt_token: authData.token, backend_url: `${BACKEND_URL}` }),
+            });
+          }
+        }
+      } catch {
+        // Non-fatal: agent may already have a valid token; continue with scan.
+        console.warn("Could not refresh agent token before scan — proceeding with existing token.");
+      }
+
+      // Step 2: Trigger the scan.
       const res = await axios.post(`${AGENT_URL}/scan`, {}, { timeout: 5000 });
       if (res.data.scanning) {
         showToastNotification("Scan started — the agent is indexing your files in the background.");
@@ -295,6 +316,7 @@ const FileSearch: React.FC = () => {
       setTimeout(() => setIndexingStatus("not_started"), 3000);
     }
   };
+
 
   const resetFilters = () => {
     setServiceFilter("");
@@ -337,7 +359,7 @@ const FileSearch: React.FC = () => {
     try {
       
       const res = await axios.post(
-        `http://localhost:5000/search/${encodeURIComponent(filepath)}/favorite`,{}, { withCredentials: true }
+        `${BACKEND_URL}/search/${encodeURIComponent(filepath)}/favorite`,{}, { withCredentials: true }
       );
       console.log("Favorite status updated", res.data);
       const updatedFile = res.data.file;

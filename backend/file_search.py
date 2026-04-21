@@ -435,43 +435,75 @@ def extract_text_from_file(file_obj, filetype: str) -> str:
 def index_files_worker(user_id, base_directory):
     """Index all folders and files recursively in a given drive/directory with prefix search support."""
     from app import app
+    from sqlalchemy.dialects.postgresql import insert
+    
     with app.app_context():
         session = scoped_session(sessionmaker(bind=db.engine))  # New DB session
 
         indexing_status[user_id] = "in_progress"
-        indexed_items = []
-        new_entries = []
 
         try:
+            batch_size = 2000
+            db_batch = []
+            es_batch = []
+
+            def flush_batches():
+                nonlocal db_batch, es_batch
+                if not db_batch:
+                    return
+                
+                # Bulk UPSERT to PostgreSQL
+                stmt = insert(IndexedFile).values(db_batch)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["filepath"],
+                    set_={
+                        "filename": stmt.excluded.filename,
+                        "filetype": stmt.excluded.filetype,
+                        "is_folder": stmt.excluded.is_folder
+                    }
+                )
+                session.execute(stmt)
+                session.commit()
+                print(f"Committed {len(db_batch)} files/folders to DB")
+
+                # Bulk index in Elasticsearch
+                if es_batch and es and check_elasticsearch():
+                    for doc in es_batch:
+                        if "_id" in doc:
+                            del doc["_id"]
+                    helpers.bulk(es, [{"_index": "file_index", "_id": doc["id"], "_source": doc} for doc in es_batch])
+                    print(f"Indexed {len(es_batch)} items in Elasticsearch")
+                
+                db_batch.clear()
+                es_batch.clear()
+
             for root, dirs, files in os.walk(base_directory):
                 # Filter out excluded directories
                 dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith(".")]
-                print(f"Scanning: {root}")  # Debugging log
                 
                 # Index Directories
                 for folder in dirs:
                     folder_path = sanitize_filepath(os.path.join(root, folder))
-                    if session.query(IndexedFile).filter_by(filepath=folder_path, user_id=user_id).first():
-                        continue
-                    new_entries.append(IndexedFile(
-                        user_id=user_id,
-                        filename=folder,
-                        filepath=folder_path,
-                        is_folder=True,
-                        filetype="folder",
-                        storage_type="local",  # Set storage type to 'local' for local files
-                        is_favorite=False  # Default to False for new entries
-                    ))
-                    indexed_items.append({
-                        "id": f"{folder_path}",
+                    
+                    db_batch.append({
                         "user_id": user_id,
                         "filename": folder,
-                        "filename_ngram": folder.lower(),  # 👈 Add ngram field for prefix search
                         "filepath": folder_path,
                         "is_folder": True,
                         "filetype": "folder",
-                        "storage_type": "local",  # Set storage type to 'local' for local files
-                        "is_favorite": False  # Default to False for new entries
+                        "storage_type": "local",
+                        "is_favorite": False
+                    })
+                    es_batch.append({
+                        "id": folder_path,
+                        "user_id": user_id,
+                        "filename": folder,
+                        "filename_ngram": folder.lower(),
+                        "filepath": folder_path,
+                        "is_folder": True,
+                        "filetype": "folder",
+                        "storage_type": "local",
+                        "is_favorite": False
                     })
 
                 # Index Files
@@ -480,47 +512,37 @@ def index_files_worker(user_id, base_directory):
                     if file in EXCLUDE_FILES or file.startswith("."):
                         continue  # Skip hidden/system files
 
-                    print(f"Indexing file: {file_path}")  # Debugging log
-
-                    # Extract file extension as filetype (e.g., 'pdf', 'txt', 'jpg')
+                    # Extract file extension as filetype
                     _, file_extension = os.path.splitext(file)
-                    file_extension = file_extension.lower().strip('.')  # Remove the leading dot and convert to lowercase
+                    file_extension = file_extension.lower().strip('.')
 
-                    if session.query(IndexedFile).filter_by(filepath=file_path, user_id=user_id).first():
-                        continue
-                    
-                    new_entries.append(IndexedFile(
-                        user_id=user_id,
-                        filename=file,
-                        filepath=file_path,
-                        is_folder=False,
-                        filetype=file_extension,  # Save filetype (extension)
-                        storage_type="local",  # Set storage type to 'local' for local files
-                        is_favorite=False  # Default to False for new entries
-                    ))
-
-                    indexed_items.append({
-                        "id": f"{file_path}",
+                    db_batch.append({
                         "user_id": user_id,
                         "filename": file,
-                        "filename_ngram": file.lower(),  # 👈 Add ngram field for prefix search
                         "filepath": file_path,
                         "is_folder": False,
-                        "filetype": file_extension,  # Include filetype (extension) for files
-                        "storage_type": "local" , # Set storage type to 'local' for local files
-                        "is_favorite": False  # Default to False for new entries
+                        "filetype": file_extension,
+                        "storage_type": "local",
+                        "is_favorite": False
+                    })
+                    es_batch.append({
+                        "id": file_path,
+                        "user_id": user_id,
+                        "filename": file,
+                        "filename_ngram": file.lower(),
+                        "filepath": file_path,
+                        "is_folder": False,
+                        "filetype": file_extension,
+                        "storage_type": "local",
+                        "is_favorite": False
                     })
 
-            # Commit new entries to the database
-            if new_entries:
-                session.bulk_save_objects(new_entries)
-                session.commit()
-                print(f"Committed {len(new_entries)} files/folders to DB")  # Debugging log
+                    # Flush if batch size reached
+                    if len(db_batch) >= batch_size:
+                        flush_batches()
 
-            # Index in Elasticsearch
-            if indexed_items:
-                helpers.bulk(es, [{"_index": "file_index", "_id": item["id"], "_source": item} for item in indexed_items])
-                print(f"Indexed {len(indexed_items)} items in Elasticsearch")  # Debugging log
+            # Flush remaining
+            flush_batches()
 
         except Exception as e:
             logging.error(f"Error during indexing: {str(e)}")
@@ -751,6 +773,121 @@ def sync_google_photos(account_id, user_id):
         
         finally:
             session.remove()
+
+
+@search_bp.route("/sync-agent-files", methods=["POST"])
+@jwt_required()
+def sync_agent_files():
+    """Receive indexed files from the desktop agent and store in PSQL + ES."""
+    # Acquire concurrency slot — prevents >3 simultaneous syncs on free tier
+    semaphore = current_app.config.get("SYNC_SEMAPHORE")
+    acquired = semaphore.acquire(blocking=False) if semaphore else True
+    if not acquired:
+        return jsonify({"error": "Server busy — retry in a moment"}), 429
+
+    user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    files_batch = data.get("files", [])
+
+    if not files_batch:
+        if semaphore and acquired:
+            semaphore.release()
+        return jsonify({"message": "No files received"}), 200
+
+    session = scoped_session(sessionmaker(bind=db.engine))
+    new_entries = []
+    es_docs = []
+
+    try:
+        for file in files_batch:
+            filepath = file.get("filepath", "")[:512]
+            filename = file.get("filename", "")[:255]
+            filetype = file.get("filetype", "unknown")[:500]
+            is_folder = file.get("is_folder", False)
+            last_modified = file.get("last_modified")
+            
+            if last_modified:
+                try:
+                    last_modified = datetime.fromtimestamp(float(last_modified), timezone.utc)
+                except (ValueError, TypeError):
+                    last_modified = datetime.now(timezone.utc)
+            else:
+                last_modified = datetime.now(timezone.utc)
+
+    # Upsert into PostgreSQL
+            filesize = file.get("filesize")
+
+            # Upsert into PostgreSQL
+            stmt = insert(IndexedFile).values(
+                user_id=user_id,
+                filename=filename,
+                filepath=filepath,
+                is_folder=is_folder,
+                filetype=filetype,
+                storage_type="local",
+                is_favorite=False,
+                last_modified=last_modified
+            ).on_conflict_do_update(
+                index_elements=["filepath"],
+                set_={
+                    "user_id": user_id,        # keep owner updated on resync
+                    "filename": filename,
+                    "filetype": filetype,
+                    "last_modified": last_modified,
+                }
+            )
+            session.execute(stmt)
+
+            # Prepare Elasticsearch Payload
+            es_docs.append({
+                "id": filepath,
+                "user_id": user_id,
+                "filename": filename,
+                "filename_ngram": filename.lower(),
+                "filepath": filepath,
+                "is_folder": is_folder,
+                "filetype": filetype,
+                "storage_type": "local",
+                "is_favorite": False,
+            })
+
+        # Commit all records to PostgreSQL
+        try:
+            session.commit()
+            logging.info(f"sync_agent_files: committed {len(files_batch)} records to PostgreSQL for user {user_id}")
+        except Exception as db_err:
+            session.rollback()
+            logging.error(f"sync_agent_files: PostgreSQL commit failed for user {user_id}: {db_err}")
+            return jsonify({"error": "Database commit failed", "details": str(db_err)}), 500
+
+        # Push to Elasticsearch
+        if es_docs and es and check_elasticsearch():
+            try:
+                for doc in es_docs:
+                    if "_id" in doc:
+                        del doc["_id"]
+                helpers.bulk(es, [{"_index": "file_index", "_id": doc["id"], "_source": doc} for doc in es_docs])
+                logging.info(f"sync_agent_files: indexed {len(es_docs)} docs in Elasticsearch for user {user_id}")
+            except Exception as es_err:
+                # ES failure is non-fatal — PostgreSQL data is already saved.
+                logging.warning(f"sync_agent_files: Elasticsearch bulk failed (non-fatal): {es_err}")
+        elif not check_elasticsearch():
+            logging.warning("sync_agent_files: Elasticsearch is unavailable — skipping ES indexing. PostgreSQL records were saved.")
+
+        return jsonify({"message": f"Successfully synced {len(files_batch)} files"}), 200
+
+    except Exception as e:
+        session.rollback()
+        logging.error(f"sync_agent_files: Unexpected error for user {user_id}: {str(e)}")
+        error_details = str(e)
+        if hasattr(e, 'errors'):
+            error_details = str(e.errors)
+        return jsonify({"error": "Failed to sync files", "details": error_details}), 500
+    finally:
+        session.remove()
+        if semaphore and acquired:
+            semaphore.release()
+
 
 
 @search_bp.route("/index-files", methods=["POST"])

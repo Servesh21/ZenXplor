@@ -1,3 +1,4 @@
+import { BACKEND_URL } from "../api";
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X, Sun, Moon, Search, Home } from "lucide-react";
@@ -30,7 +31,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, setUser, darkMode, setDarkMode })
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const response = await fetch("http://localhost:5000/auth/profile", {
+        const response = await fetch(`${BACKEND_URL}/auth/profile`, {
           method: "GET",
           credentials: "include",
         });
@@ -54,7 +55,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, setUser, darkMode, setDarkMode })
 
   const handleLogout = async () => {
     try {
-      const response = await fetch("http://localhost:5000/auth/logout", {
+      const response = await fetch(`${BACKEND_URL}/auth/logout`, {
         method: "POST",
         credentials: "include",
       });

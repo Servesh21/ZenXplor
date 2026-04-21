@@ -14,7 +14,10 @@ import {
   Menu,
   X,
   Moon,
-  Sun
+  Sun,
+  Download,
+  Monitor,
+  CheckCircle2
 } from "lucide-react";
 
 const sources: string[] = [
@@ -269,6 +272,82 @@ const Homepage: React.FC = () => {
           
         </motion.div>
       </header>
+
+      {/* ── Desktop Agent Download Banner ───────────────────────────────── */}
+      <section className="w-full py-16 px-4 sm:px-6 lg:px-8 relative z-10">
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6 }}
+          className="max-w-5xl mx-auto"
+        >
+          <div className="relative rounded-3xl overflow-hidden bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-600 shadow-2xl p-0.5">
+            <div className="bg-gray-900/95 dark:bg-gray-900/98 rounded-3xl px-8 py-10 sm:px-12 flex flex-col md:flex-row items-center gap-8">
+              
+              {/* Left: icon + text */}
+              <div className="flex-1 text-center md:text-left">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold mb-4">
+                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  Free Windows App
+                </div>
+                <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-3">
+                  Search Local Files Too
+                </h2>
+                <p className="text-gray-300 text-lg mb-6 max-w-lg">
+                  The <span className="text-indigo-300 font-semibold">ZenXplor Desktop Agent</span> runs silently in the background, indexing your PC files so you can search them alongside your cloud storage — all from the web app.
+                </p>
+                <ul className="space-y-2 mb-8 text-sm text-gray-400">
+                  {[
+                    "Indexes PDFs, Word docs, Excel, code files & more",
+                    "Real-time file watching — new files appear instantly",
+                    "Runs silently in the system tray, uses < 50 MB RAM",
+                    "Open & download local files directly from the browser",
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="flex flex-wrap gap-3 justify-center md:justify-start">
+                  <a
+                    href="https://github.com/Servesh21/file_search1/releases/latest/download/zenxplor-agent.exe"
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-400 hover:to-blue-400 text-white font-semibold shadow-lg transition-all hover:shadow-indigo-500/30 hover:scale-105"
+                    download
+                    id="download-agent-btn"
+                  >
+                    <Download className="w-5 h-5" />
+                    Download for Windows
+                  </a>
+                  <span className="inline-flex items-center gap-1.5 px-4 py-3 rounded-xl bg-white/5 text-gray-400 text-sm border border-white/10">
+                    <Monitor className="w-4 h-4" />
+                    Windows 10 / 11 · 64-bit
+                  </span>
+                </div>
+              </div>
+
+              {/* Right: animated visual */}
+              <div className="hidden md:flex flex-col items-center justify-center flex-shrink-0">
+                <motion.div
+                  animate={{ y: [0, -10, 0] }}
+                  transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                  className="relative"
+                >
+                  <div className="w-40 h-40 rounded-3xl bg-gradient-to-br from-indigo-500/30 to-blue-500/30 border border-indigo-500/30 flex items-center justify-center shadow-2xl">
+                    <Monitor className="w-20 h-20 text-indigo-300" />
+                  </div>
+                  <div className="absolute -bottom-3 -right-3 w-12 h-12 rounded-2xl bg-green-500 flex items-center justify-center shadow-lg">
+                    <CheckCircle2 className="w-7 h-7 text-white" />
+                  </div>
+                </motion.div>
+                <p className="mt-6 text-gray-500 text-xs text-center">v1.0.0 · ~13 MB</p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </section>
 
       {/* Features section with modern card design */}
       <section id="features" className="w-full py-24 relative overflow-hidden">

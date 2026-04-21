@@ -12,7 +12,7 @@ from typing import Optional
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from watchdog.observers import Observer
 
-from .constants import EXCLUDE_DIRS, EXCLUDE_EXTENSIONS
+from .constants import ALLOWED_EXTENSIONS, EXCLUDE_DIRS
 from .indexer import upsert_file, delete_file
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class FileChangeHandler(FileSystemEventHandler):
             )
         else:
             ext = os.path.splitext(path)[1].lower()
-            if ext in EXCLUDE_EXTENSIONS:
+            if ext not in ALLOWED_EXTENSIONS:
                 return
             filesize, mtime = _file_meta(path)
             upsert_file(
@@ -86,7 +86,7 @@ class FileChangeHandler(FileSystemEventHandler):
             )
         else:
             ext = os.path.splitext(dest)[1].lower()
-            if ext in EXCLUDE_EXTENSIONS:
+            if ext not in ALLOWED_EXTENSIONS:
                 return
             filesize, mtime = _file_meta(dest)
             upsert_file(
@@ -104,7 +104,7 @@ class FileChangeHandler(FileSystemEventHandler):
         if _should_skip(path):
             return
         ext = os.path.splitext(path)[1].lower()
-        if ext in EXCLUDE_EXTENSIONS:
+        if ext not in ALLOWED_EXTENSIONS:
             return
         filesize, mtime = _file_meta(path)
         upsert_file(

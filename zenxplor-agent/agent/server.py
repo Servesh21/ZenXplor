@@ -24,7 +24,6 @@ from .constants import EXCLUDE_DIRS, PORT
 from .indexer import (
     delete_file,
     full_scan,
-    get_db_connection,
     get_stats,
     is_scanning,
     search_files,
@@ -84,38 +83,15 @@ def _is_within_roots(filepath: str) -> bool:
     return False
 
 
-def _is_indexed(filepath: str) -> bool:
-    """Return True only when this exact filepath was indexed by the agent."""
+def _get_safe_path(filepath: str) -> "str | None":
+    """Return the real filepath if it is within our accessible roots."""
     try:
-        conn = get_db_connection()
-        row = conn.execute(
-            "SELECT 1 FROM files WHERE filepath = ? LIMIT 1", (filepath,)
-        ).fetchone()
-        conn.close()
-        return row is not None
-    except Exception:
-        return False
-
-
-def _get_indexed_path(filepath: str) -> "str | None":
-    """Return the filepath stored in the index, or None if not found.
-
-    Using the DB value (not the user-supplied value) for FS access breaks the
-    path-injection taint chain recognised by static analysis tools.
-    """
-    try:
-        conn = get_db_connection()
-        row = conn.execute(
-            "SELECT filepath FROM files WHERE filepath = ? AND is_folder = 0 LIMIT 1",
-            (filepath,),
-        ).fetchone()
-        conn.close()
-        if row:
-            return str(row["filepath"])
+        resolved, safe = _resolve_and_validate(filepath)
+        if safe and _is_within_roots(resolved) and os.path.exists(resolved):
+            return resolved
     except Exception:
         pass
     return None
-
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
@@ -131,8 +107,36 @@ def auth() -> Any:
     backend_url = data.get("backend_url", "")
     if not token or not backend_url:
         return jsonify({"error": "jwt_token and backend_url are required"}), 400
+
     set_jwt(token, backend_url)
-    return jsonify({"saved": True})
+    logger.info("Auth token saved. backend_url=%s", backend_url)
+
+    # Kick off a background scan now that we have a fresh token, but only
+    # if one isn't already running.
+    if not is_scanning():
+        t = threading.Thread(target=full_scan, daemon=True, name="post-auth-scan")
+        t.start()
+        logger.info("Started background scan after new token was received.")
+        return jsonify({"saved": True, "scan_started": True})
+
+    return jsonify({"saved": True, "scan_started": False})
+
+
+@app.route("/token-status", methods=["GET"])
+def token_status() -> Any:
+    """Debug endpoint (localhost-only) — shows whether a JWT token is configured."""
+    if not _is_localhost():
+        return jsonify({"error": "Forbidden"}), 403
+
+    cfg = get_config()
+    token = cfg.get("auth", "jwt_token", fallback="").strip()
+    backend_url = cfg.get("auth", "backend_url", fallback="").strip()
+    return jsonify({
+        "token_configured": bool(token),
+        "token_length": len(token),
+        "backend_url": backend_url or "(not set)",
+        "scanning": is_scanning(),
+    })
 
 
 @app.route("/search", methods=["GET"])
@@ -177,15 +181,10 @@ def open_file() -> Any:
     raw = data.get("filepath", "")
     if not raw:
         return jsonify({"error": "filepath is required"}), 400
-    resolved, safe = _resolve_and_validate(raw)
-    if not safe or not _is_within_roots(resolved):
-        return jsonify({"error": "Access to system paths is not allowed"}), 403
-    # Use the path stored in the DB — not the user-supplied value — for FS access
-    safe_path = _get_indexed_path(resolved)
+    
+    safe_path = _get_safe_path(raw)
     if safe_path is None:
-        return jsonify({"error": "File is not in the index"}), 403
-    if not os.path.exists(safe_path):
-        return jsonify({"error": "File not found"}), 404
+        return jsonify({"error": "Access denied or file not found"}), 403
 
     try:
         subprocess.Popen(["explorer", "/select,", safe_path])
@@ -204,15 +203,12 @@ def download_file() -> Any:
     raw = request.args.get("filepath", "").strip()
     if not raw:
         return jsonify({"error": "filepath parameter is required"}), 400
-    resolved, safe = _resolve_and_validate(raw)
-    if not safe or not _is_within_roots(resolved):
-        return jsonify({"error": "Access to system paths is not allowed"}), 403
-    # Use the path stored in the DB — not the user-supplied value — for FS access
-    safe_path = _get_indexed_path(resolved)
+        
+    safe_path = _get_safe_path(raw)
     if safe_path is None:
-        return jsonify({"error": "File is not in the index"}), 403
+        return jsonify({"error": "Access denied or file not found"}), 403
     if not os.path.isfile(safe_path):
-        return jsonify({"error": "File not found or is a directory"}), 404
+        return jsonify({"error": "Not a file"}), 400
 
     return send_from_directory(
         os.path.dirname(safe_path),

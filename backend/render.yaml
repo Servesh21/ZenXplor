@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: zenxplor-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 2 --threads 4 --timeout 60 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zenxplor-db
+          property: connectionString
+      - key: ELASTICSEARCH_URL
+        # Sign up at https://bonsai.io (free tier: 125MB, 1 shard)
+        # and paste your Bonsai cluster URL here
+        value: https://your-cluster.bonsai.io
+      - key: FRONTEND_URL
+        # Your Vercel deployment URL e.g. https://zenxplor.vercel.app
+        value: https://your-app.vercel.app
+      - key: DROPBOX_CLIENT_ID
+        sync: false
+      - key: DROPBOX_CLIENT_SECRET
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: SESSION_TYPE
+        value: filesystem
+
+databases:
+  - name: zenxplor-db
+    databaseName: zenxplor
+    user: zenxplor
+    plan: free

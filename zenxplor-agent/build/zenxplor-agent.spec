@@ -5,7 +5,24 @@ a = Analysis(
     pathex=['..'],
     binaries=[],
     datas=[],
-    hiddenimports=['watchdog.observers.winapi'],
+    hiddenimports=[
+        'watchdog.observers.winapi',
+        'schedule',
+        'requests',
+        'requests.adapters',
+        'requests.auth',
+        'requests.cookies',
+        'requests.exceptions',
+        'requests.models',
+        'requests.sessions',
+        'requests.structures',
+        'urllib3',
+        'urllib3.contrib',
+        'certifi',
+        'charset_normalizer',
+        'idna',
+        'winreg',
+    ],
     hookspath=[],
     runtime_hooks=[],
     excludes=['tkinter', 'matplotlib', 'numpy', 'PIL'],
@@ -25,6 +42,6 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,        # no terminal window
+    console=False,        # no terminal window (use --debug flag at runtime to see output)
     icon=None,
 )
