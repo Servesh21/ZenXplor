@@ -70,9 +70,16 @@ npm run dev
 This starts the frontend development server at `http://localhost:5173/`.
 
 ## Usage
-- Click **Reindex Files** to index files from the `C:/Users` directory.
+- Click **Index Files** and select a local folder in the browser picker to index local files (browser-first flow).
 - Use the search bar to find files.
-- Click on a file to open its location.
+- For browser-indexed local files, open/download works in the same browser session after indexing.
+- Native OS file-opening is only available for server-indexed local paths (`local` storage type), not browser-only virtual paths.
+
+## Browser directory picker notes
+- The browser-first local indexing flow uses `window.showDirectoryPicker()` when supported.
+- It requires a secure context (`https` or `localhost`) and user interaction.
+- Browser support is strongest in Chromium-based desktop browsers (Chrome/Edge).
+- Fallback mode uses a folder file input (`webkitdirectory`) with reduced capability.
 
 ## Troubleshooting
 - If Elasticsearch is not running, restart it using:
