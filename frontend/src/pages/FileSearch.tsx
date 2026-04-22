@@ -22,13 +22,13 @@ interface FileItem {
   is_favorite: boolean;
 }
 
-const getFileExtension = (name: string): string => {
-  const lastDotIndex = name.lastIndexOf(".");
-  if (lastDotIndex <= 0 || lastDotIndex === name.length - 1) {
-    return "unknown";
-  }
-  return name.slice(lastDotIndex + 1).toLowerCase();
-};
+// const getFileExtension = (name: string): string => {
+//   const lastDotIndex = name.lastIndexOf(".");
+//   if (lastDotIndex <= 0 || lastDotIndex === name.length - 1) {
+//     return "unknown";
+//   }
+//   return name.slice(lastDotIndex + 1).toLowerCase();
+// };
 
 /** Stable numeric ID derived from a file path (for agent results). */
 const pathToId = (fp: string): number => {

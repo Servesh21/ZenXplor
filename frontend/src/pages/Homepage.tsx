@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import TypingAnimation from "./TypingAnimation";
 import { 
   Search, 
@@ -10,11 +9,6 @@ import {
   Zap, 
   Layers,
   ArrowRight,
-  ChevronDown,
-  Menu,
-  X,
-  Moon,
-  Sun,
   Download,
   Monitor,
   CheckCircle2

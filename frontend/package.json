@@ -45,6 +45,7 @@
     "class-variance-authority": "^0.7.1",
     "dotenv": "^16.4.7",
     "framer-motion": "^12.4.2",
+    "fuse.js": "^7.3.0",
     "gapi-script": "^1.2.0",
     "js-cookie": "^3.0.5",
     "js-cookies": "^1.0.4",
