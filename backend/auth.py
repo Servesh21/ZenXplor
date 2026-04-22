@@ -79,12 +79,14 @@ def signup():
         "message": "User created successfully",
         "user": new_user.to_dict()
     }), 201)
+    
+    is_prod = os.getenv("FLASK_ENV", "development") == "production"
     response.set_cookie(
         "access_token_cookie", 
         access_token, 
         httponly=True, 
-        samesite="Lax", 
-        secure=False,  # Change to True in production (HTTPS)
+        samesite="None" if is_prod else "Lax", 
+        secure=is_prod,
         max_age=7 * 24 * 60 * 60  # 7 days in seconds
     )
     return response
@@ -109,8 +111,14 @@ def login():
         "access_token": access_token
     }))
 
+    is_prod = os.getenv("FLASK_ENV", "development") == "production"
     response.set_cookie(
-        "access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False,max_age=7 * 24 * 60 * 60 
+        "access_token_cookie", 
+        access_token, 
+        httponly=True, 
+        samesite="None" if is_prod else "Lax", 
+        secure=is_prod,
+        max_age=7 * 24 * 60 * 60 
     )
     
     
@@ -214,8 +222,17 @@ def authorize_google():
         db.session.commit()
 
     access_token = create_access_token(identity=str(user.id))
-    response = make_response(redirect("http://localhost:5173/storage-overview"))
-    response.set_cookie("access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False)
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+    response = make_response(redirect(f"{frontend_url}/storage-overview"))
+    is_prod = os.getenv("FLASK_ENV", "development") == "production"
+    response.set_cookie(
+        "access_token_cookie", 
+        access_token, 
+        httponly=True, 
+        samesite="None" if is_prod else "Lax", 
+        secure=is_prod,
+        max_age=7 * 24 * 60 * 60
+    )
     return response
 
 
@@ -246,8 +263,17 @@ def authorize_github():
         db.session.commit()
 
     access_token = create_access_token(identity=str(user.id))
-    response = make_response(redirect("http://localhost:5173/storage-overview"))  # Adjust frontend URL
-    response.set_cookie("access_token_cookie", access_token, httponly=True, samesite="Lax", secure=False)
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+    response = make_response(redirect(f"{frontend_url}/storage-overview"))
+    is_prod = os.getenv("FLASK_ENV", "development") == "production"
+    response.set_cookie(
+        "access_token_cookie", 
+        access_token, 
+        httponly=True, 
+        samesite="None" if is_prod else "Lax", 
+        secure=is_prod,
+        max_age=7 * 24 * 60 * 60
+    )
     return response
 
 @auth_bp.route("/check-auth", methods=["GET"])

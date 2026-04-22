@@ -29,6 +29,10 @@ app.config["JWT_ACCESS_COOKIE_NAME"] = "access_token_cookie"
 app.config["JWT_COOKIE_SECURE"] = os.getenv("FLASK_ENV", "development") == "production"
 app.config["JWT_COOKIE_CSRF_PROTECT"] = False
 
+# ── Session Cookie Settings ───────────────────────────────────────────────────
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["SESSION_COOKIE_SECURE"] = True
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
 _allowed_origins = [
     "http://localhost:5173",
@@ -111,6 +115,13 @@ def create_es_index():
 
 def initialize_app():
     print("🚀 Initializing application...")
+
+    # Ensure tables are created
+    try:
+        db.create_all()
+        print("✅ Database tables created (if they didn't exist)")
+    except Exception as e:
+        print("❌ DB creation error:", e)
 
     # Run DB migrations
     try:

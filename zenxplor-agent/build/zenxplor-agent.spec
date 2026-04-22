@@ -41,7 +41,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,        # no terminal window (use --debug flag at runtime to see output)
     icon=None,
 )
