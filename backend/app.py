@@ -1,6 +1,6 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
+from flask_migrate import Migrate, upgrade
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
@@ -10,7 +10,7 @@ import threading
 
 from auth import auth_bp
 from extensions import db
-from file_search import search_bp, start_auto_sync_threads
+from file_search import search_bp, start_auto_sync_threads, es
 from cloudstorage import cloud_storage_bp
 from config import Config
 
@@ -29,13 +29,12 @@ app.config["JWT_ACCESS_COOKIE_NAME"] = "access_token_cookie"
 app.config["JWT_COOKIE_SECURE"] = os.getenv("FLASK_ENV", "development") == "production"
 app.config["JWT_COOKIE_CSRF_PROTECT"] = False
 
-# ── CORS: allow local dev + any deployed Vercel/production frontend ───────────
+# ── CORS ──────────────────────────────────────────────────────────────────────
 _allowed_origins = [
-    "http://localhost:5173",           # local Vite dev
+    "http://localhost:5173",
     "http://localhost:3000",
-    os.getenv("FRONTEND_URL", ""),     # set this on Render to your Vercel URL
+    os.getenv("FRONTEND_URL", ""),
 ]
-# Filter out empty strings
 _allowed_origins = [o for o in _allowed_origins if o]
 
 CORS(
@@ -51,13 +50,10 @@ db.init_app(app)
 migrate = Migrate(app, db)
 jwt = JWTManager(app)
 
-# ── Thread pool for background indexing tasks ─────────────────────────────────
-# Limit to 3 workers on Render free tier to stay within RAM budget.
+# ── Thread pool (Render safe) ─────────────────────────────────────────────────
 executor = ThreadPoolExecutor(max_workers=3)
 
-# ── Concurrency limiter for the agent sync endpoint ───────────────────────────
-# Prevents memory spikes if many agents POST simultaneously (shouldn't happen
-# normally, but guard against it on the 512 MB Render free tier).
+# ── Sync concurrency limiter ──────────────────────────────────────────────────
 _sync_semaphore = threading.Semaphore(3)
 app.config["SYNC_SEMAPHORE"] = _sync_semaphore
 
@@ -72,11 +68,67 @@ app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(search_bp, url_prefix="/search")
 app.register_blueprint(cloud_storage_bp)
 
-# ── Health check (Render pings this to keep the service alive) ────────────────
+# ── Health check ──────────────────────────────────────────────────────────────
 @app.route("/health")
 def health():
     return {"status": "ok"}, 200
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 🔥 AUTO INIT (DB + Elasticsearch) — replaces steps 2.4 and 2.5
+# ─────────────────────────────────────────────────────────────────────────────
+
+def create_es_index():
+    try:
+        if not es.indices.exists(index="file_index"):
+            es.indices.create(
+                index="file_index",
+                body={
+                    "settings": {
+                        "number_of_shards": 1,
+                        "number_of_replicas": 0
+                    },
+                    "mappings": {
+                        "properties": {
+                            "filename": {"type": "text"},
+                            "filename_ngram": {"type": "text"},
+                            "filepath": {"type": "keyword"},
+                            "filetype": {"type": "keyword"},
+                            "storage_type": {"type": "keyword"},
+                            "user_id": {"type": "integer"},
+                            "is_folder": {"type": "boolean"},
+                            "is_favorite": {"type": "boolean"}
+                        }
+                    }
+                }
+            )
+            print("✅ Elasticsearch index created")
+        else:
+            print("ℹ️ Elasticsearch index already exists")
+    except Exception as e:
+        print("❌ Elasticsearch init failed:", e)
+
+
+def initialize_app():
+    print("🚀 Initializing application...")
+
+    # Run DB migrations
+    try:
+        upgrade()
+        print("✅ Database migrated")
+    except Exception as e:
+        print("❌ Migration error:", e)
+
+    # Create Elasticsearch index
+    create_es_index()
+
+
+# Run initialization ON STARTUP (production-safe)
+with app.app_context():
+    initialize_app()
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     debug = os.getenv("FLASK_ENV", "development") != "production"
     print("Flask app is running…")
