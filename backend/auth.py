@@ -267,7 +267,8 @@ def check_auth():
                 "username": user.username,
                 "email": user.email,
                 "profile_picture": user.profile_picture
-            }
+            },
+            "token": request.cookies.get("access_token_cookie")
         }), 200
     except Exception as e:
         print("Auth check error:", e)

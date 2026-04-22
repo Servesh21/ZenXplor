@@ -1,3 +1,4 @@
+import { BACKEND_URL } from "../api";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
 import { 
@@ -5,11 +6,12 @@ import {
   FaFilter, FaTimes, FaFileAlt, FaFilePdf, FaFileWord, 
   FaFileImage, FaFolder, FaCheck, FaChevronDown,
   FaStar, FaSortAmountDown,
-  FaRegStar
+  FaRegStar, FaDesktop
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
+const AGENT_URL = "http://localhost:7832";
 
 interface FileItem {
   id: number;
@@ -19,6 +21,25 @@ interface FileItem {
   cloud_file_id?: string;
   is_favorite: boolean;
 }
+
+const getFileExtension = (name: string): string => {
+  const lastDotIndex = name.lastIndexOf(".");
+  if (lastDotIndex <= 0 || lastDotIndex === name.length - 1) {
+    return "unknown";
+  }
+  return name.slice(lastDotIndex + 1).toLowerCase();
+};
+
+/** Stable numeric ID derived from a file path (for agent results). */
+const pathToId = (fp: string): number => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < fp.length; i++) {
+    h ^= fp.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  // Negative range so it never clashes with positive DB ids
+  return -(h % 2_000_000_000 || 1);
+};
 
 const FileSearch: React.FC = () => {
   const navigate = useNavigate();
@@ -39,6 +60,10 @@ const FileSearch: React.FC = () => {
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
+
+  // Windows Desktop Agent state
+  const [agentRunning, setAgentRunning] = useState(false);
+  const [agentScanning, setAgentScanning] = useState(false);
 
   const observer = useRef<IntersectionObserver | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -62,7 +87,7 @@ const FileSearch: React.FC = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const response = await axios.get("http://localhost:5000/auth/check-auth", { 
+        const response = await axios.get(`${BACKEND_URL}/auth/check-auth`, { 
           withCredentials: true 
         });
         
@@ -79,17 +104,58 @@ const FileSearch: React.FC = () => {
     checkAuth();
   }, [navigate]);
 
+  // Poll agent health every 10 s so the indicator stays current
+  useEffect(() => {
+    const checkAgent = async () => {
+      try {
+        await axios.get(`${AGENT_URL}/health`, { timeout: 2000 });
+        setAgentRunning(true);
+      } catch {
+        setAgentRunning(false);
+      }
+    };
+    checkAgent();
+    const id = setInterval(checkAgent, 10_000);
+    return () => clearInterval(id);
+  }, []);
+
   // Fetch search results with filters
   const fetchFiles = async (newQuery = query, newOffset = offset) => {
     if (loading || (!newQuery.trim() && !serviceFilter && !fileTypeFilter) || !hasMore) return;
     setLoading(true);
     try {
-      const response = await axios.get("http://localhost:5000/search/search-files", {
+      const response = await axios.get(`${BACKEND_URL}/search/search-files`, {
         params: { q: newQuery, offset: newOffset, limit: LIMIT, service: serviceFilter, filetype: fileTypeFilter },
         withCredentials: true,
       });
       console.log("Search response:", response.data);
-      const newData = response.data.results;
+      let newData: FileItem[] = response.data.results;
+
+      // On fresh search, augment with agent-indexed local results
+      if (newOffset === 0 && agentRunning && newQuery.trim() &&
+          (!serviceFilter || serviceFilter === "local")) {
+        try {
+          const agentRes = await axios.get(`${AGENT_URL}/search`, {
+            params: { q: newQuery, limit: 50, filetype: fileTypeFilter || undefined },
+            timeout: 3000,
+          });
+          const seenPaths = new Set(newData.map((f) => f.filepath));
+          const agentItems: FileItem[] = (agentRes.data.results || [])
+            .filter((r: { filepath: string }) => !seenPaths.has(r.filepath))
+            .map((r: { filepath: string; filename: string }) => ({
+              id: pathToId(r.filepath),
+              filename: r.filename,
+              filepath: r.filepath,
+              storage_type: "local",
+              cloud_file_id: undefined,
+              is_favorite: false,
+            }));
+          newData = [...agentItems, ...newData];
+        } catch {
+          // Agent search failed — continue with backend results only
+        }
+      }
+
       setFiles((prev) => (newOffset === 0 ? newData : [...prev, ...newData]));
       setHasMore(response.data.has_more);
       setOffset(newOffset + LIMIT);
@@ -137,8 +203,31 @@ const FileSearch: React.FC = () => {
   );
 
   const handleDownload = async (filepath: string, filename: string) => {
+    // Real local paths (e.g. C:\Users\...) — route through the Desktop Agent
+    if (!filepath.startsWith("upload://") && !filepath.startsWith("http")) {
+      if (!agentRunning) {
+        showToastNotification("ZenXplor Desktop Agent is not running. Cannot download local files.");
+        return;
+      }
+      try {
+        const url = `${AGENT_URL}/download?filepath=${encodeURIComponent(filepath)}`;
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToastNotification(`Downloaded ${filename}`);
+      } catch (error) {
+        console.error("Agent download failed:", error);
+        showToastNotification("Failed to download file");
+      }
+      return;
+    }
+
+    // Uploaded / cloud files — backend download
     try {
-      const response = await axios.get(`http://localhost:5000/search/download-file?filepath=${encodeURIComponent(filepath)}`, {
+      const response = await axios.get(`${BACKEND_URL}/search/download-file?filepath=${encodeURIComponent(filepath)}`, {
         withCredentials: true,
         responseType: "blob",
       });
@@ -158,29 +247,76 @@ const FileSearch: React.FC = () => {
   };
 
   const handleOpenFileLocation = async (filepath: string) => {
+    // Real local paths — route through the Desktop Agent
+    if (!filepath.startsWith("upload://") && !filepath.startsWith("http")) {
+      if (!agentRunning) {
+        showToastNotification("ZenXplor Desktop Agent is not running. Cannot open local files.");
+        return;
+      }
+      try {
+        await axios.post(`${AGENT_URL}/open`, { filepath }, { timeout: 5000 });
+        showToastNotification("Opening file location in Explorer");
+      } catch (error) {
+        console.error("Agent open failed:", error);
+        showToastNotification("Could not open file location");
+      }
+      return;
+    }
+
     try {
-      await axios.post("http://localhost:5000/search/open-file", { filepath }, { withCredentials: true });
+      await axios.post("${BACKEND_URL}/search/open-file", { filepath }, { withCredentials: true });
       showToastNotification("Opening file location");
-    } catch (error) {
-      
+    } catch {
       showToastNotification("Opening file location");
     }
   };
 
-  const handleIndex = async () => {
+  /** Trigger a full filesystem scan via the Desktop Agent. */
+  const handleAgentScan = async () => {
+    if (!agentRunning) {
+      showToastNotification("ZenXplor Desktop Agent is not running. Please install and start it first.");
+      return;
+    }
     setIndexingStatus("indexing");
+    setAgentScanning(true);
     try {
-      await axios.post("http://localhost:5000/search/index-files", {}, { withCredentials: true });
-      setIndexingStatus("completed");
-      showToastNotification("Files indexed successfully");
-      setTimeout(() => setIndexingStatus("not_started"), 3000);
-    } catch (error) {
-      console.error("Indexing failed:", error);
+      // Step 1: Re-fetch a fresh token from the backend and push it to the agent.
+      // This is essential — without a valid token the agent silently skips all sync.
+      try {
+        const authRes = await fetch(`${BACKEND_URL}/auth/check-auth`, { credentials: "include" });
+        if (authRes.ok) {
+          const authData = await authRes.json();
+          if (authData.authenticated && authData.token) {
+            await fetch(`${AGENT_URL}/auth`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jwt_token: authData.token, backend_url: `${BACKEND_URL}` }),
+            });
+          }
+        }
+      } catch {
+        // Non-fatal: agent may already have a valid token; continue with scan.
+        console.warn("Could not refresh agent token before scan — proceeding with existing token.");
+      }
+
+      // Step 2: Trigger the scan.
+      const res = await axios.post(`${AGENT_URL}/scan`, {}, { timeout: 5000 });
+      if (res.data.scanning) {
+        showToastNotification("Scan started — the agent is indexing your files in the background.");
+        setIndexingStatus("completed");
+      } else {
+        showToastNotification(res.data.message || "Scan already running.");
+        setIndexingStatus("not_started");
+      }
+    } catch {
       setIndexingStatus("failed");
-      showToastNotification("Indexing failed. Please try again.");
+      showToastNotification("Failed to start scan. Is the Desktop Agent running?");
+    } finally {
+      setAgentScanning(false);
       setTimeout(() => setIndexingStatus("not_started"), 3000);
     }
   };
+
 
   const resetFilters = () => {
     setServiceFilter("");
@@ -223,7 +359,7 @@ const FileSearch: React.FC = () => {
     try {
       
       const res = await axios.post(
-        `http://localhost:5000/search/${encodeURIComponent(filepath)}/favorite`,{}, { withCredentials: true }
+        `${BACKEND_URL}/search/${encodeURIComponent(filepath)}/favorite`,{}, { withCredentials: true }
       );
       console.log("Favorite status updated", res.data);
       const updatedFile = res.data.file;
@@ -319,12 +455,23 @@ const FileSearch: React.FC = () => {
                   </svg>
                 </motion.button>
               </motion.div>
+
+              {/* Agent status indicator */}
+              <div
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 text-white text-sm"
+                title={agentRunning ? "ZenXplor Desktop Agent is running" : "ZenXplor Desktop Agent not detected"}
+              >
+                <FaDesktop size={14} />
+                <span className={`w-2 h-2 rounded-full ${agentRunning ? "bg-green-400" : "bg-red-400"}`} />
+                <span className="hidden sm:inline">{agentRunning ? "Agent" : "No Agent"}</span>
+              </div>
               
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={handleIndex}
-                disabled={indexingStatus === "indexing"}
+                onClick={handleAgentScan}
+                disabled={indexingStatus === "indexing" || agentScanning}
+                title={agentRunning ? "Trigger a full filesystem scan via the Desktop Agent" : "Install the ZenXplor Desktop Agent to scan local files"}
                 className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-sm font-medium shadow-lg ${
                   indexingStatus === "indexing" 
                     ? "bg-indigo-700 text-indigo-200" 
@@ -332,21 +479,23 @@ const FileSearch: React.FC = () => {
                       ? "bg-green-500 text-white" 
                       : indexingStatus === "failed" 
                         ? "bg-red-500 text-white" 
-                        : "bg-white text-indigo-700 hover:bg-indigo-50"
+                        : agentRunning
+                          ? "bg-white text-indigo-700 hover:bg-indigo-50"
+                          : "bg-white/30 text-white cursor-not-allowed"
                 }`}
               >
                 <FaSync className={indexingStatus === "indexing" ? "animate-spin" : ""} size={14} />
                 {indexingStatus === "indexing" 
-                  ? "Indexing..." 
+                  ? "Scanning..." 
                   : indexingStatus === "completed" 
-                    ? <><FaCheck className="mr-1" /> Indexed</> 
+                    ? <><FaCheck className="mr-1" /> Scan Started</> 
                     : indexingStatus === "failed" 
                       ? "Failed" 
-                      : "Index Files"}
+                      : "Scan Files"}
               </motion.button>
             </div>
           </div>
-          
+
           {/* Search and Filters */}
           <div className="px-8 py-6 border-b border-gray-200 dark:border-gray-700">
             {/* Search Bar */}
@@ -472,7 +621,8 @@ const FileSearch: React.FC = () => {
                         className="w-full border-0 rounded-lg p-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                       >
                         <option value="">All Services</option>
-                        <option value="local">Local Storage</option>
+                        <option value="local">Local Storage (Agent)</option>
+                        <option value="local_upload">Uploaded &amp; Indexed</option>
                         <option value="google_drive">Google Drive</option>
                         <option value="dropbox">Dropbox</option>
                         <option value="google_photos">Google Photos</option>
@@ -603,7 +753,9 @@ const FileSearch: React.FC = () => {
                                 whileTap={{ scale: 0.9 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  file.filepath && handleDownload(file.filepath, file.filename);
+                                  if (file.filepath) {
+                                    handleDownload(file.filepath, file.filename);
+                                  }
                                 }}
                                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
                                 title="Download"
@@ -850,7 +1002,9 @@ const FileSearch: React.FC = () => {
                                 whileTap={{ scale: 0.9 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  file.filepath && handleDownload(file.filepath, file.filename);
+                                  if (file.filepath) {
+                                    handleDownload(file.filepath, file.filename);
+                                  }
                                 }}
                                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
                                 title="Download"
