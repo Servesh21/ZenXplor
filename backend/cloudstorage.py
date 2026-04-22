@@ -23,17 +23,21 @@ load_dotenv()
 cloud_storage_bp = Blueprint("cloud_storage", __name__)
 CORS(cloud_storage_bp, supports_credentials=True)
 
+# Base URLs from environment variables
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5000").rstrip("/")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+
 # Google OAuth Credentials (unchanged)
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REDIRECT_URI = "http://localhost:5000/cloud-storage/callback"
-FRONTEND_REDIRECT_URI = "http://localhost:5173/storage-overview"
+REDIRECT_URI = f"{BACKEND_URL}/cloud-storage/callback"
+FRONTEND_REDIRECT_URI = f"{FRONTEND_URL}/storage-overview"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 # Dropbox OAuth Credentials
 DROPBOX_CLIENT_ID = os.getenv("DROPBOX_CLIENT_ID")
 DROPBOX_CLIENT_SECRET = os.getenv("DROPBOX_CLIENT_SECRET")
-DROPBOX_REDIRECT_URI = "http://localhost:5000/cloud-storage/dropbox/callback"
+DROPBOX_REDIRECT_URI = f"{BACKEND_URL}/cloud-storage/dropbox/callback"
 DROPBOX_TOKEN_URL = "https://api.dropbox.com/oauth2/token"
 
 AUTO_SYNC_INTERVAL = 600  # seconds

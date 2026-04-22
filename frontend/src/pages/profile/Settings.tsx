@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { BACKEND_URL } from "../../api";
 
-const API_URL = "http://localhost:5000/auth";
+const API_URL = `${BACKEND_URL}/auth`;
 
 const Settings: React.FC = () => {
   const [name, setName] = useState("");
@@ -55,7 +56,7 @@ const Settings: React.FC = () => {
     <div className="max-w-lg mx-auto p-6 bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-lg rounded-lg mt-10 transition duration-300">
       <h2 className="text-2xl font-semibold mb-4">Settings</h2>
       {message && <p className="text-center text-sm font-medium text-green-500 dark:text-green-400 mb-2">{message}</p>}
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium">Change Name</label>
         <input

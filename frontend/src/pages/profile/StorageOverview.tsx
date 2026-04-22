@@ -59,7 +59,7 @@ const CloudStorageAccounts = () => {
   };
 
   const handleAddDropbox = () => {
-    const DROPBOX_REDIRECT_URI = "http://localhost:5000/cloud-storage/dropbox/callback";
+    const DROPBOX_REDIRECT_URI = `${BACKEND_URL}/cloud-storage/dropbox/callback`;
     const authUrl = `https://www.dropbox.com/oauth2/authorize?` +
       `client_id=${encodeURIComponent(DROPBOX_CLIENT_ID)}` +
       `&response_type=code` +

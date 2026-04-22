@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { UserCircle,  LogOut,  Folder, Camera } from "lucide-react";
+import { UserCircle, LogOut, Folder, Camera } from "lucide-react";
 
-
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 const predefinedImages = [
   "https://avataaars.io/?avatarStyle=Circle&topType=ShortHairShortCurly&accessoriesType=Blank&hairColor=BlondeGolden&facialHairType=MoustacheFancy&facialHairColor=Auburn&clotheType=BlazerShirt&eyeType=Default&eyebrowType=Default&mouthType=Smile&skinColor=Pale",
   "https://avataaars.io/?avatarStyle=Circle&topType=ShortHairShortFlat&accessoriesType=Blank&hairColor=Black&facialHairType=BeardMedium&facialHairColor=Black&clotheType=BlazerSweater&eyeType=Default&eyebrowType=Default&mouthType=Default&skinColor=Brown",
@@ -11,7 +11,7 @@ const predefinedImages = [
   "https://avataaars.io/?avatarStyle=Circle&topType=ShortHairShortCurly&accessoriesType=Blank&hairColor=Black&facialHairType=Blank&clotheType=Hoodie&clotheColor=Blue03&eyeType=Default&eyebrowType=Default&mouthType=Smile&skinColor=DarkBrown"
 ];
 
-const UserProfileDropdown: React.FC<{ 
+const UserProfileDropdown: React.FC<{
   user: { username: string; email: string; profile_picture?: string } | null;
   handleLogout: () => void;
   setUser?: React.Dispatch<React.SetStateAction<{ username: string; email: string; profile_picture?: string } | null>>;
@@ -44,23 +44,23 @@ const UserProfileDropdown: React.FC<{
 
   const handleAvatarChange = async (avatarUrl: string) => {
     if (!user || !setUser) return;
-    
+
     setIsUpdating(true);
     setSelectedAvatar(avatarUrl);
-    
+
     try {
-      const response = await fetch("http://localhost:5000/auth/edit-profile", {
+      const response = await fetch(`${BACKEND_URL}/auth/edit-profile`, {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          username: user.username, 
-          email: user.email, 
-          profile_picture: avatarUrl 
+        body: JSON.stringify({
+          username: user.username,
+          email: user.email,
+          profile_picture: avatarUrl
         })
       });
-      
-      
+
+
       if (response.ok) {
         setUser({ ...user, profile_picture: avatarUrl });
         setUpdateMessage("Avatar updated!");
@@ -91,10 +91,10 @@ const UserProfileDropdown: React.FC<{
             aria-label="User menu"
           >
             {user.profile_picture ? (
-              <img 
-                src={user.profile_picture} 
-                alt="Profile" 
-                className="w-11 h-11 rounded-full object-cover border-2 border-white" 
+              <img
+                src={user.profile_picture}
+                alt="Profile"
+                className="w-11 h-11 rounded-full object-cover border-2 border-white"
               />
             ) : (
               <UserCircle size={28} className="text-white" />
@@ -111,10 +111,10 @@ const UserProfileDropdown: React.FC<{
                 >
                   <div className="relative group">
                     {user.profile_picture ? (
-                      <img 
-                        src={user.profile_picture} 
-                        alt="Profile" 
-                        className="w-14 h-14 rounded-full object-cover border-2 border-blue-100 dark:border-gray-600" 
+                      <img
+                        src={user.profile_picture}
+                        alt="Profile"
+                        className="w-14 h-14 rounded-full object-cover border-2 border-blue-100 dark:border-gray-600"
                       />
                     ) : (
                       <div className="w-14 h-14 rounded-full bg-blue-100 dark:bg-gray-700 flex items-center justify-center">
@@ -128,7 +128,7 @@ const UserProfileDropdown: React.FC<{
                     <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
                   </div>
                 </button>
-                
+
                 {setUser && (
                   <button
                     onClick={() => setShowAvatarSelector(prev => !prev)}
@@ -139,7 +139,7 @@ const UserProfileDropdown: React.FC<{
                   </button>
                 )}
               </div>
-              
+
               {/* Avatar Selector */}
               {showAvatarSelector && (
                 <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-700">
@@ -151,17 +151,16 @@ const UserProfileDropdown: React.FC<{
                   </div>
                   <div className="grid grid-cols-5 gap-2">
                     {predefinedImages.map((img, index) => (
-                      <div 
-                        key={index} 
-                        className={`relative cursor-pointer rounded-full border-2 ${
-                          selectedAvatar === img ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-200 hover:border-blue-300'
-                        } transition-all`}
+                      <div
+                        key={index}
+                        className={`relative cursor-pointer rounded-full border-2 ${selectedAvatar === img ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-200 hover:border-blue-300'
+                          } transition-all`}
                         onClick={() => !isUpdating && handleAvatarChange(img)}
                       >
-                        <img 
-                          src={img} 
-                          alt={`Avatar option ${index + 1}`} 
-                          className="w-full h-auto rounded-full" 
+                        <img
+                          src={img}
+                          alt={`Avatar option ${index + 1}`}
+                          className="w-full h-auto rounded-full"
                         />
                       </div>
                     ))}
@@ -172,10 +171,10 @@ const UserProfileDropdown: React.FC<{
               <div className={`${showAvatarSelector ? 'border-t' : ''} border-gray-100 dark:border-gray-700`}>
                 {/* Menu Items */}
                 <Link to="/storage-overview" className="flex items-center px-4 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
-                  <Folder size={18} className="mr-3 text-blue-500 dark:text-blue-400" /> 
+                  <Folder size={18} className="mr-3 text-blue-500 dark:text-blue-400" />
                   <span>Storage Access</span>
                 </Link>
-                
+
                 {/* <Link to="/settings" className="flex items-center px-4 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
                   <Settings size={18} className="mr-3 text-blue-500 dark:text-blue-400" /> 
                   <span>Settings</span>
@@ -192,7 +191,7 @@ const UserProfileDropdown: React.FC<{
                   onClick={handleLogout}
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors duration-200"
                 >
-                  <LogOut size={18} /> 
+                  <LogOut size={18} />
                   <span>Sign Out</span>
                 </button>
               </div>
