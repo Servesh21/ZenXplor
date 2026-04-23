@@ -39,7 +39,7 @@ const App: React.FC = () => {
             if (!user) setUser(data.user);
             // Push fresh token to the local agent every time this runs.
             // The agent saves it to config.ini and uses it for all sync operations.
-            await fetch("http://127.0.0.1:7832/auth", {
+            await fetch("https://127.0.0.1:7832/auth", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ jwt_token: data.token, backend_url: `${BACKEND_URL}` })

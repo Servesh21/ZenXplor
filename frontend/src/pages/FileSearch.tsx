@@ -11,7 +11,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
-const AGENT_URL = "http://localhost:7832";
+const AGENT_URL = "https://127.0.0.1:7832";
 
 interface FileItem {
   id: number;

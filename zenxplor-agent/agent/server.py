@@ -39,12 +39,8 @@ CORS(
         re.compile(r"http://localhost:\d+"),  # any local dev server
         re.compile(r"https://.*"),            # any HTTPS-deployed frontend
     ],
+    allow_private_network=True,
 )
-
-@app.after_request
-def add_pna_headers(response):
-    response.headers["Access-Control-Allow-Private-Network"] = "true"
-    return response
 
 VERSION = "1.0.0"
 
@@ -286,5 +282,14 @@ def update_roots() -> Any:
 # ─── Run ─────────────────────────────────────────────────────────────────────
 
 def run_server() -> None:
-    logger.info("Starting ZenXplor local API server on 127.0.0.1:%d", PORT)
-    app.run(host="127.0.0.1", port=PORT, threaded=True, use_reloader=False)
+    from .cert import get_or_create_cert
+    cert_file, key_file = get_or_create_cert()
+    
+    logger.info("Starting ZenXplor local API server on 127.0.0.1:%d (HTTPS)", PORT)
+    app.run(
+        host="127.0.0.1", 
+        port=PORT, 
+        threaded=True, 
+        use_reloader=False,
+        ssl_context=(cert_file, key_file)
+    )
