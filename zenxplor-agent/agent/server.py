@@ -41,6 +41,11 @@ CORS(
     ],
 )
 
+@app.after_request
+def add_pna_headers(response):
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
 VERSION = "1.0.0"
 
 

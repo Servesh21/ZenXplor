@@ -14,9 +14,13 @@ from file_search import search_bp, start_auto_sync_threads, es
 from cloudstorage import cloud_storage_bp
 from config import Config
 
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 load_dotenv()
 
 app = Flask(__name__)
+# ── Trust Render's reverse proxy headers (X-Forwarded-For, X-Forwarded-Proto, etc.) ──
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.config.from_object(Config)
 
 # ── Also wire the JWT secret from the Config SECRET_KEY ───────────────────────

@@ -93,11 +93,13 @@ def google_callback():
     if not code:
         return jsonify({"error": "Authorization code not found"}), 400
 
+    from flask import url_for
+    redirect_uri_dynamic = url_for("cloud_storage.google_callback", _external=True)
     data = {
         "code": code,
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI,
+        "redirect_uri": redirect_uri_dynamic,
         "grant_type": "authorization_code",
     }
     response = requests.post(TOKEN_URL, data=data)
@@ -147,11 +149,13 @@ def dropbox_callback():
     if not code:
         return jsonify({"error": "Authorization code not found"}), 400
     print("Client ID:", DROPBOX_CLIENT_ID)
+    from flask import url_for
+    redirect_uri_dynamic = url_for("cloud_storage.dropbox_callback", _external=True)
     data = {
         "code": code,
         "client_id": DROPBOX_CLIENT_ID,
         "client_secret": DROPBOX_CLIENT_SECRET,
-        "redirect_uri": DROPBOX_REDIRECT_URI,
+        "redirect_uri": redirect_uri_dynamic,
         "grant_type": "authorization_code",
     }
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
