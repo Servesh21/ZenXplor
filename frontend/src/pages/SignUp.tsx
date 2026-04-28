@@ -1,7 +1,6 @@
 import { BACKEND_URL, AGENT_URL } from "../api";
 import React, { useState, useEffect } from "react";
-import { FaGoogle, FaGithub, FaEnvelope, FaLock, FaUser } from "react-icons/fa";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 interface User {
   username: string;
@@ -11,7 +10,7 @@ interface User {
 
 interface AuthProps {
   setUser: (user: User | null) => void;
-  user: User | null;  // Added user prop to check authentication state
+  user: User | null;
 }
 
 const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
@@ -23,19 +22,15 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [activeField, setActiveField] = useState<string | null>(null);
 
   const navigate = useNavigate();
 
-  // Check if user is already authenticated using the user state
   useEffect(() => {
     if (user) {
-      // User is already authenticated, redirect to storage-overview
       navigate("/storage-overview");
     }
   }, [user, navigate]);
 
-  // Helper functions for validation
   const validateEmail = (email: string): boolean => {
     const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return re.test(email);
@@ -45,7 +40,6 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
     return password.length >= 8;
   };
 
-  // Google Authentication
   const handleGoogleOAuth = () => {
     setIsLoading(true);
     window.location.href = `${BACKEND_URL}/auth/login/google`;
@@ -56,8 +50,8 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
     window.location.href = `${BACKEND_URL}/auth/login/github`;
   };
 
-  // Handle Login
-  const handleLogin = async () => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
       setIsLoading(true);
       const response = await fetch(`${BACKEND_URL}/auth/login`, {
@@ -96,8 +90,8 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
     }
   };
 
-  // Handle Signup with Direct Login, with added validation
-  const handleSignup = async () => {
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (password !== confirmPassword) {
       setError("Passwords do not match!");
       return;
@@ -124,7 +118,6 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
       if (response.ok) {
         setUser(data.user);
 
-        // Fetch check-auth or if data has access_token, pass it:
         fetch(`${BACKEND_URL}/auth/check-auth`, { credentials: "include" })
           .then(res => res.json())
           .then(authData => {
@@ -150,306 +143,224 @@ const Auth: React.FC<AuthProps> = ({ setUser, user }) => {
     }
   };
 
-  // Clear errors/success when switching modes
   useEffect(() => {
     setError("");
     setSuccess("");
   }, [isLogin]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
-      <div className="w-full max-w-6xl flex flex-col lg:flex-row overflow-hidden rounded-2xl shadow-2xl">
-        {/* Left Side - Illustration/Brand */}
-        <div className="lg:w-1/2 bg-blue-600 dark:bg-blue-800 p-8 lg:p-16 flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute inset-0 opacity-10">
-            {/* Abstract Pattern Overlay */}
-            <svg className="h-full w-full" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
-              <path d="M 0 100 Q 50 80 100 100 T 200 100 T 300 100 T 400 100 T 500 100 T 600 100 T 700 100 T 800 100 V 0 H 0 Z" fill="currentColor" />
-              <path d="M 0 300 Q 50 280 100 300 T 200 300 T 300 300 T 400 300 T 500 300 T 600 300 T 700 300 T 800 300 V 200 H 0 Z" fill="currentColor" />
-              <path d="M 0 500 Q 50 480 100 500 T 200 500 T 300 500 T 400 500 T 500 500 T 600 500 T 700 500 T 800 500 V 400 H 0 Z" fill="currentColor" />
-              <path d="M 0 700 Q 50 680 100 700 T 200 700 T 300 700 T 400 700 T 500 700 T 600 700 T 700 700 T 800 700 V 600 H 0 Z" fill="currentColor" />
-            </svg>
-          </div>
-
-          <div className="z-10 mb-12">
-            <h1 className="text-4xl font-bold text-white mb-2">ZenXplor</h1>
-            <p className="text-blue-200 text-lg">Search your files across desktop and cloud, all in one place</p>
-          </div>
-
-          <div className="z-10">
-            <h2 className="text-3xl font-bold text-white mb-6">
-              {isLogin ? "Welcome back!" : "Join us!"}
-            </h2>
-            <p className="text-blue-100 text-lg max-w-md">
-              {isLogin
-                ? "Sign in to access your account and continue your journey with us."
-                : "Create an account to get started and explore all the features we offer."}
+    <div className="bg-surface-container-lowest text-on-surface font-body selection:bg-primary/30 dark">
+      <main className="flex min-h-screen w-full">
+        {/* Left Panel: Branding & Marketing border */}
+        <section className="hidden lg:flex w-1/2 bg-surface-container-lowest flex-col justify-between p-12 relative overflow-hidden">
+          {/* Decorative Elements */}
+          <div className="absolute top-1/4 -left-20 w-96 h-96 bg-primary/5 rounded-full blur-[120px]"></div>
+          
+          <header className="relative z-10 flex items-center gap-2">
+            <span className="text-2xl font-semibold tracking-tighter text-on-surface">ZenXplor</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_8px_#c4c0ff]"></span>
+          </header>
+          
+          <div className="relative z-10 max-w-md">
+            <h1 className="text-[36px] font-bold leading-tight tracking-tight text-on-surface mb-4">
+              Find anything. Everywhere.
+            </h1>
+            <p className="text-on-surface-variant text-base leading-relaxed mb-10">
+              Search your local files, Google Drive, Dropbox, and Gmail from one place.
             </p>
-
-            <div className="mt-12 space-y-4">
-              <div className="flex items-center text-blue-100">
-                <div className="mr-4 p-2 bg-blue-500 bg-opacity-30 rounded-full">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
-                  </svg>
-                </div>
-                <span>Simple and secure login</span>
+            <div className="flex flex-wrap gap-3">
+              <div className="flex items-center gap-2 px-4 py-2 bg-surface-container-high rounded-lg text-sm font-medium">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#6C63FF" }}></span>
+                <span>Local files</span>
               </div>
-
-              <div className="flex items-center text-blue-100">
-                <div className="mr-4 p-2 bg-blue-500 bg-opacity-30 rounded-full">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
-                  </svg>
-                </div>
-                <span>Access your files from anywhere</span>
+              <div className="flex items-center gap-2 px-4 py-2 bg-surface-container-high rounded-lg text-sm font-medium">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#4285F4" }}></span>
+                <span>Google Drive</span>
               </div>
-
-              <div className="flex items-center text-blue-100">
-                <div className="mr-4 p-2 bg-blue-500 bg-opacity-30 rounded-full">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
-                  </svg>
-                </div>
-                <span>Access to exclusive features</span>
+              <div className="flex items-center gap-2 px-4 py-2 bg-surface-container-high rounded-lg text-sm font-medium">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#0061FF" }}></span>
+                <span>Dropbox</span>
               </div>
             </div>
           </div>
-        </div>
+          
+          <footer className="relative z-10 text-xs font-mono text-outline-variant tracking-widest uppercase">
+            Architecture v2.04 // Midnight Protocol
+          </footer>
+        </section>
 
-        {/* Right Side - Form */}
-        <div className="lg:w-1/2 bg-white dark:bg-gray-800 p-8 lg:p-16">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
-              {isLogin ? "Sign in" : "Create account"}
-            </h3>
-            <div className="flex space-x-1 text-sm font-medium">
-              <button
-                onClick={() => setIsLogin(true)}
-                className={`px-3 py-1 rounded-md transition-colors ${isLogin
-                    ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200'
-                    : 'text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-300'
-                  }`}
-              >
-                Login
-              </button>
-              <button
-                onClick={() => setIsLogin(false)}
-                className={`px-3 py-1 rounded-md transition-colors ${!isLogin
-                    ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200'
-                    : 'text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-300'
-                  }`}
-              >
-                Register
-              </button>
+        {/* Right Panel: Login Form */}
+        <section className="w-full lg:w-1/2 bg-surface-dim lg:border-l border-outline-variant/10 flex flex-col items-center justify-center p-8 lg:p-24">
+          <div className="w-full max-w-[400px]">
+            <div className="lg:hidden flex items-center gap-2 mb-12">
+              <span className="text-xl font-semibold tracking-tighter text-on-surface">ZenXplor</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_8px_#c4c0ff]"></span>
             </div>
-          </div>
-
-          {error && (
-            <div className="mb-6 p-4 rounded-lg bg-red-50 dark:bg-red-900/30 border-l-4 border-red-500 text-red-700 dark:text-red-300 flex items-start">
-              <svg className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-              <p>{error}</p>
-            </div>
-          )}
-
-          {success && (
-            <div className="mb-6 p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border-l-4 border-green-500 text-green-700 dark:text-green-300 flex items-start">
-              <svg className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-              <p>{success}</p>
-            </div>
-          )}
-
-          <div className="space-y-6">
-            {/* Social Login Buttons */}
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                onClick={handleGoogleOAuth}
-                disabled={isLoading}
-                className="flex items-center justify-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                <FaGoogle className="text-red-500" />
-                <span className="font-medium">Google</span>
-              </button>
-
-              <button
-                onClick={handleGithubOAuth}
-                disabled={isLoading}
-                className="flex items-center justify-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                <FaGithub className="text-gray-800 dark:text-white" />
-                <span className="font-medium">Github</span>
-              </button>
-            </div>
-
-            <div className="flex items-center">
-              <div className="flex-grow h-px bg-gray-300 dark:bg-gray-600"></div>
-              <span className="px-4 text-sm text-gray-500 dark:text-gray-400">or continue with email</span>
-              <div className="flex-grow h-px bg-gray-300 dark:bg-gray-600"></div>
-            </div>
-
-            {/* Form Fields */}
-            <div className="space-y-4">
-              {!isLogin && (
-                <div className="relative mb-5">
-                  <label
-                    htmlFor="username"
-                    className={`block text-sm font-medium mb-1.5 ${activeField === 'username'
-                        ? 'text-blue-600 dark:text-blue-400'
-                        : 'text-gray-700 dark:text-gray-300'
-                      }`}
-                  >
-                    Username
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                      <FaUser />
-                    </div>
-                    <input
-                      id="username"
-                      type="text"
-                      className={`w-full pl-10 pr-3 py-2.5 text-base rounded-lg border ${activeField === 'username'
-                          ? 'border-blue-500 ring-4 ring-blue-100 dark:ring-blue-900/30 bg-white dark:bg-gray-900'
-                          : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50'
-                        } focus:outline-none transition-all duration-200 text-gray-900 dark:text-gray-100`}
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      onFocus={() => setActiveField('username')}
-                      onBlur={() => setActiveField(null)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="relative mb-5">
-                <label
-                  htmlFor="email"
-                  className={`block text-sm font-medium mb-1.5 ${activeField === 'email'
-                      ? 'text-blue-600 dark:text-blue-400'
-                      : 'text-gray-700 dark:text-gray-300'
-                    }`}
-                >
-                  Email
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                    <FaEnvelope />
-                  </div>
-                  <input
-                    id="email"
-                    type="email"
-                    className={`w-full pl-10 pr-3 py-2.5 text-base rounded-lg border ${activeField === 'email'
-                        ? 'border-blue-500 ring-4 ring-blue-100 dark:ring-blue-900/30 bg-white dark:bg-gray-900'
-                        : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50'
-                      } focus:outline-none transition-all duration-200 text-gray-900 dark:text-gray-100`}
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    onFocus={() => setActiveField('email')}
-                    onBlur={() => setActiveField(null)}
-                  />
-                </div>
+            
+            <div className="mb-10 flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold text-on-surface mb-2">
+                  {isLogin ? "Welcome back" : "Create Account"}
+                </h2>
+                <p className="text-on-surface-variant text-sm">
+                  {isLogin ? "Enter your credentials to access your workspace." : "Join ZenXplor to unify your files."}
+                </p>
               </div>
-
-              <div className="relative mb-5">
-                <label
-                  htmlFor="password"
-                  className={`block text-sm font-medium mb-1.5 ${activeField === 'password'
-                      ? 'text-blue-600 dark:text-blue-400'
-                      : 'text-gray-700 dark:text-gray-300'
-                    }`}
-                >
-                  Password
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                    <FaLock />
-                  </div>
-                  <input
-                    id="password"
-                    type="password"
-                    className={`w-full pl-10 pr-3 py-2.5 text-base rounded-lg border ${activeField === 'password'
-                        ? 'border-blue-500 ring-4 ring-blue-100 dark:ring-blue-900/30 bg-white dark:bg-gray-900'
-                        : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50'
-                      } focus:outline-none transition-all duration-200 text-gray-900 dark:text-gray-100`}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onFocus={() => setActiveField('password')}
-                    onBlur={() => setActiveField(null)}
-                  />
-                </div>
-              </div>
-
-              {!isLogin && (
-                <div className="relative mb-5">
-                  <label
-                    htmlFor="confirmPassword"
-                    className={`block text-sm font-medium mb-1.5 ${activeField === 'confirmPassword'
-                        ? 'text-blue-600 dark:text-blue-400'
-                        : 'text-gray-700 dark:text-gray-300'
-                      }`}
-                  >
-                    Confirm Password
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                      <FaLock />
-                    </div>
-                    <input
-                      id="confirmPassword"
-                      type="password"
-                      className={`w-full pl-10 pr-3 py-2.5 text-base rounded-lg border ${activeField === 'confirmPassword'
-                          ? 'border-blue-500 ring-4 ring-blue-100 dark:ring-blue-900/30 bg-white dark:bg-gray-900'
-                          : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50'
-                        } focus:outline-none transition-all duration-200 text-gray-900 dark:text-gray-100`}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      onFocus={() => setActiveField('confirmPassword')}
-                      onBlur={() => setActiveField(null)}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
 
-            {isLogin && (
-              <div className="flex justify-end">
-
-              </div>
+            {error && (
+               <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-start text-sm">
+                 <span className="material-symbols-outlined text-[18px] mr-2">error</span>
+                 <p>{error}</p>
+               </div>
+            )}
+            
+            {success && (
+               <div className="mb-6 p-4 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 flex items-start text-sm">
+                 <span className="material-symbols-outlined text-[18px] mr-2">check_circle</span>
+                 <p>{success}</p>
+               </div>
             )}
 
-            <button
-              onClick={isLogin ? handleLogin : handleSignup}
-              disabled={isLoading}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-medium transition-colors relative overflow-hidden"
-            >
-              {isLoading ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Processing...
-                </span>
-              ) : (
-                <span className="flex items-center justify-center">
-                  {isLogin ? "Sign in" : "Create account"}
-                  <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
-                  </svg>
-                </span>
+            <form className="space-y-6" onSubmit={isLogin ? handleLogin : handleSignup}>
+              {!isLogin && (
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-bold text-outline uppercase tracking-[0.5px] ml-1" htmlFor="username">
+                    Username
+                  </label>
+                  <div className="border border-outline-variant/15 bg-surface-container-lowest rounded-xl flex items-center px-4 py-3.5 transition-all focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_rgba(196,192,255,0.1)]">
+                    <span className="material-symbols-outlined text-outline mr-3 text-[20px]">person</span>
+                    <input 
+                      className="bg-transparent border-none focus:ring-0 text-sm text-on-surface placeholder:text-outline-variant w-full outline-none" 
+                      id="username" 
+                      name="username" 
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="johndoe" 
+                      required 
+                      type="text" 
+                    />
+                  </div>
+                </div>
               )}
-            </button>
-          </div>
 
-          <p className="mt-8 text-center text-sm text-gray-600 dark:text-gray-400">
-            By {isLogin ? "signing in" : "creating an account"}, you agree to our{" "}
-            <Link to="/terms" className="text-blue-600 hover:underline dark:text-blue-400">Terms of Service</Link>{" "}
-            and{" "}
-            <Link to="/privacy" className="text-blue-600 hover:underline dark:text-blue-400">Privacy Policy</Link>.
-          </p>
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold text-outline uppercase tracking-[0.5px] ml-1" htmlFor="email">
+                  Email Address
+                </label>
+                <div className="border border-outline-variant/15 bg-surface-container-lowest rounded-xl flex items-center px-4 py-3.5 transition-all focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_rgba(196,192,255,0.1)]">
+                  <span className="material-symbols-outlined text-outline mr-3 text-[20px]">mail</span>
+                  <input 
+                    className="bg-transparent border-none focus:ring-0 text-sm text-on-surface placeholder:text-outline-variant w-full outline-none" 
+                    id="email" 
+                    name="email" 
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@company.com" 
+                    required 
+                    type="email" 
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between items-end mb-1">
+                  <label className="block text-[11px] font-bold text-outline uppercase tracking-[0.5px] ml-1" htmlFor="password">
+                    Password
+                  </label>
+                  {isLogin && <a className="text-[11px] font-medium text-primary hover:underline cursor-pointer" onClick={(e) => e.preventDefault()}>Forgot password?</a>}
+                </div>
+                <div className="border border-outline-variant/15 bg-surface-container-lowest rounded-xl flex items-center px-4 py-3.5 transition-all focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_rgba(196,192,255,0.1)]">
+                  <span className="material-symbols-outlined text-outline mr-3 text-[20px]">lock</span>
+                  <input 
+                    className="bg-transparent border-none focus:ring-0 text-sm text-on-surface placeholder:text-outline-variant w-full outline-none" 
+                    id="password" 
+                    name="password" 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••" 
+                    required 
+                    type="password" 
+                  />
+                </div>
+              </div>
+
+              {!isLogin && (
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-bold text-outline uppercase tracking-[0.5px] ml-1" htmlFor="confirmPassword">
+                    Confirm Password
+                  </label>
+                  <div className="border border-outline-variant/15 bg-surface-container-lowest rounded-xl flex items-center px-4 py-3.5 transition-all focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_rgba(196,192,255,0.1)]">
+                    <span className="material-symbols-outlined text-outline mr-3 text-[20px]">lock_reset</span>
+                    <input 
+                      className="bg-transparent border-none focus:ring-0 text-sm text-on-surface placeholder:text-outline-variant w-full outline-none" 
+                      id="confirmPassword" 
+                      name="confirmPassword" 
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••" 
+                      required 
+                      type="password" 
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button 
+                className="w-full bg-gradient-to-r from-[#c4c0ff] to-[#8781ff] text-[#1a1b23] font-bold py-4 rounded-xl shadow-[0_4px_14px_0_rgba(196,192,255,0.2)] hover:shadow-[0_6px_20px_rgba(196,192,255,0.23)] transition-all active:scale-[0.98] mt-2 disabled:opacity-50 flex items-center justify-center gap-2" 
+                type="submit"
+                disabled={isLoading}
+              >
+                {isLoading && <span className="material-symbols-outlined text-[18px] animate-spin">refresh</span>}
+                {isLogin ? "Sign in" : "Create account"}
+              </button>
+            </form>
+
+            <div className="relative my-8 flex items-center">
+              <div className="flex-grow border-t border-outline-variant/10"></div>
+              <span className="mx-4 text-xs font-mono text-outline-variant uppercase">or</span>
+              <div className="flex-grow border-t border-outline-variant/10"></div>
+            </div>
+
+            <button 
+              onClick={handleGoogleOAuth}
+              type="button"
+              disabled={isLoading}
+              className="w-full border border-outline-variant/15 bg-transparent text-on-surface font-medium py-3.5 rounded-xl flex items-center justify-center gap-3 hover:bg-surface-container transition-all active:scale-[0.98] disabled:opacity-50 mb-3"
+            >
+              <img alt="Google Logo" className="w-5 h-5" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC2vT_Z-nunce_uLhgpcby1NUO_ZWdRjcw-jP769B-k4MDiWoaNOeN93UGP5-Ds-ss_ZQ4StOaamPNlVZP4sCN_iG1hy0Z53m2K9tC_joDFI5Y4iroF1cuIny7DI10CKqmUGBwpObv1KzHn7SjV6QfIieZ4-5kiVMpIt9INnvkx9ZeuKQ9nVtwRxBcjZ0LF8vZkLjxUHoDKzIOvcr_WdzGqu6rFbCQfP1MWc69Cjtc41JUkxJi1Jy3ewsaR-IsVD3Xe1zBns4rKeKU" />
+              Continue with Google
+            </button>
+            
+            <button 
+              onClick={handleGithubOAuth}
+              type="button"
+              disabled={isLoading}
+              className="w-full border border-outline-variant/15 bg-transparent text-on-surface font-medium py-3.5 rounded-xl flex items-center justify-center gap-3 hover:bg-surface-container transition-all active:scale-[0.98] disabled:opacity-50"
+            >
+              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              Continue with GitHub
+            </button>
+
+            <p className="mt-10 text-center text-sm text-on-surface-variant">
+              {isLogin ? "Don't have an account?" : "Already have an account?"}
+              <button 
+                type="button"
+                onClick={() => setIsLogin(!isLogin)}
+                className="text-primary font-semibold hover:underline ml-1 cursor-pointer"
+              >
+                {isLogin ? "Sign up" : "Sign in"}
+              </button>
+            </p>
+          </div>
+        </section>
+      </main>
+      
+      {/* Ambient UI Overlay */}
+      <div className="fixed top-8 right-8 pointer-events-none hidden lg:block">
+        <div className="bg-surface-container-low/70 backdrop-blur-md px-3 py-1.5 rounded-full border border-outline-variant/10 flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_#10b981]"></span>
+          <span className="text-[10px] font-mono text-outline tracking-wider uppercase">System Operational</span>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { BACKEND_URL } from "./api";
 import React, { useEffect, useState } from "react";
 import Navbar from "./pages/Navbar";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
 import Homepage from "./pages/Homepage";
 import FileSearch from "./pages/FileSearch";
 import SignUp from "./pages/SignUp";
@@ -17,17 +17,21 @@ import "./assets/index.css";
 import HelpChatbot from "./HelpChatbot";
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
-const App: React.FC = () => {
-  interface User {
-    username: string;
-    email: string;
-    profile_picture?: string;
-  }
-  const [user, setUser] = useState<User | null>(null);
 
+export interface User {
+  username: string;
+  email: string;
+  profile_picture?: string;
+}
+
+const AppContent: React.FC = () => {
+  const [user, setUser] = useState<User | null>(null);
   const [darkMode, setDarkMode] = useState(() => {
     return JSON.parse(localStorage.getItem("darkMode") || "false");
   });
+
+  const location = useLocation();
+  const isDashboard = ["/file-search", "/storage-overview", "/settings"].includes(location.pathname);
 
   useEffect(() => {
     const syncAgent = async () => {
@@ -37,8 +41,6 @@ const App: React.FC = () => {
           const data = await res.json();
           if (data.authenticated && data.token) {
             if (!user) setUser(data.user);
-            // Push fresh token to the local agent every time this runs.
-            // The agent saves it to config.ini and uses it for all sync operations.
             await fetch("https://127.0.0.1:7832/auth", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -51,12 +53,10 @@ const App: React.FC = () => {
       }
     };
 
-    // Run immediately on mount, then every 5 minutes to keep the agent token fresh.
     syncAgent();
     const tokenRefreshInterval = setInterval(syncAgent, 5 * 60 * 1000);
     return () => clearInterval(tokenRefreshInterval);
   }, []);
-
 
   useEffect(() => {
     if (darkMode) {
@@ -68,27 +68,32 @@ const App: React.FC = () => {
   }, [darkMode]);
 
   return (
+    <div className={`flex flex-col min-h-screen ${darkMode ? "bg-gray-800 text-white" : ""}`}>
+      {!isDashboard && <Navbar darkMode={darkMode} setDarkMode={setDarkMode} user={user} setUser={setUser} />}
+      <main className={isDashboard ? "" : "flex-grow"}>
+        <Routes>
+          <Route path="/" element={<Homepage />} />
+          <Route path="/file-search" element={<FileSearch />} />
+          <Route path="/login" element={<SignUp user={user} setUser={setUser} />} />
+          <Route path="/storage-overview" element={<StorageOverview />} />
+          <Route path="/oauth-callback" element={<SignInCallback />} />
+          <Route path="/profile" element={<Profile darkMode={darkMode} user={user} setUser={setUser} />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/terms" element={<TermsOfService darkMode={darkMode} />} />
+          <Route path="/privacy" element={<PrivacyPolicy darkMode={darkMode} />} />
+        </Routes>
+        <HelpChatbot />
+      </main>
+      {!isDashboard && <Footer />}
+    </div>
+  );
+};
+
+const App: React.FC = () => {
+  return (
     <ClerkProvider publishableKey={clerkPubKey}>
       <Router>
-        <div className={`flex flex-col min-h-screen ${darkMode ? "bg-gray-800 text-white" : ""}`}>
-          <Navbar darkMode={darkMode} setDarkMode={setDarkMode} user={user} setUser={setUser} />
-          <main className="flex-grow">
-            <Routes>
-              <Route path="/" element={<Homepage />} />
-              <Route path="/file-search" element={<FileSearch />} />
-              <Route path="/login" element={<SignUp user={user} setUser={setUser} />} />
-              <Route path="/storage-overview" element={<StorageOverview />} />
-              <Route path="/oauth-callback" element={<SignInCallback />} />
-              <Route path="/profile" element={<Profile darkMode={darkMode} user={user} setUser={setUser} />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/terms" element={<TermsOfService darkMode={darkMode} />} />
-              <Route path="/privacy" element={<PrivacyPolicy darkMode={darkMode} />} />
-
-            </Routes>
-            <HelpChatbot />
-          </main>
-          <Footer />
-        </div>
+        <AppContent />
       </Router>
     </ClerkProvider>
   );

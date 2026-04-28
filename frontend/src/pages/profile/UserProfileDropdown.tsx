@@ -73,6 +73,7 @@ const UserProfileDropdown: React.FC<{
         setTimeout(() => setUpdateMessage(""), 3000);
       }
     } catch (error) {
+      console.error(error);
       setUpdateMessage("Error updating avatar");
       setTimeout(() => setUpdateMessage(""), 3000);
     } finally {

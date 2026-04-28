@@ -73,43 +73,40 @@ const Navbar: React.FC<NavbarProps> = ({ user, setUser, darkMode, setDarkMode })
   };
 
   return (
-    <nav className="relative flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 ">
-      {/* Left Section: Mobile Menu + Logo */}
-      <div className="flex items-center">
-        <MobileMenuToggle isOpen={isOpen} setIsOpen={setIsOpen} />
-        <div className="text-xl font-bold ml-3 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-          ZenXplor
+    <nav className="fixed top-0 w-full z-50 bg-[#080910]/70 backdrop-blur-xl shadow-2xl shadow-[#080910]/50 border-b border-white/5">
+      <div className="flex justify-between items-center px-8 py-4 max-w-7xl mx-auto">
+        <div className="text-xl font-bold tracking-tighter text-slate-50 flex items-center gap-2">
+          <Link to="/" className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>deployed_code</span>
+            ZenXplor
+          </Link>
+        </div>
+        <div className="hidden md:flex items-center gap-8">
+          <Link className={`text-sm font-normal transition-colors ${location.pathname === '/' ? 'text-indigo-400 border-b-2 border-indigo-500 pb-1' : 'text-slate-400 hover:text-slate-100'}`} to="/">Home</Link>
+          <Link className={`text-sm font-normal transition-colors ${location.pathname === '/file-search' ? 'text-indigo-400 border-b-2 border-indigo-500 pb-1' : 'text-slate-400 hover:text-slate-100'}`} to="/file-search">File Search</Link>
+        </div>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            className="p-2 rounded-full text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
+            aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+
+          {user ? (
+            <div className="flex items-center gap-4">
+               <UserProfileDropdown user={user} handleLogout={handleLogout} />
+            </div>
+          ) : (
+            <>
+              <Link to="/login" className="text-sm font-normal text-slate-400 hover:text-slate-100 transition-colors">Sign in</Link>
+              <Link to="/login" className="signature-glow text-on-primary-fixed px-5 py-2 rounded-lg text-sm font-semibold active:scale-95 duration-200">Get started free</Link>
+            </>
+          )}
+          <MobileMenuToggle isOpen={isOpen} setIsOpen={setIsOpen} />
         </div>
       </div>
-
-      {/* Center Section: Desktop Links */}
-      <div className="hidden md:flex flex-grow justify-center">
-        <NavigationLinks location={location} />
-      </div>
-
-      {/* Right Section: Theme Toggle + User Profile / Login Button */}
-      <div className="flex items-center space-x-3">
-        <button
-          onClick={() => setDarkMode(!darkMode)}
-          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-        >
-          {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-        </button>
-
-        {user ? (
-          <UserProfileDropdown user={user} handleLogout={handleLogout}  />
-        ) : (
-          <Link
-            to="/login"
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition duration-300 text-sm font-medium"
-          >
-            Login
-          </Link>
-        )}
-      </div>
-
-      {/* Mobile Navigation Drawer */}
       <MobileNavigation 
         isOpen={isOpen} 
         setIsOpen={setIsOpen} 
@@ -130,40 +127,10 @@ const MobileMenuToggle: React.FC<{ isOpen: boolean; setIsOpen: (open: boolean) =
   </button>
 );
 
-const NavigationLinks: React.FC<{ location: any }> = ({ location }) => {
-  const links = [
-    { path: "/", label: "Home", icon: <Home size={18} /> },
-    { path: "/file-search", label: "File Search", icon: <Search size={18} /> }
-  ];
-  
-  return (
-    <div className="md:flex md:space-x-1">
-      {links.map(({ path, label, icon }) => (
-        <Link
-          key={path}
-          to={path}
-          className={`relative px-4 py-2 rounded-md transition-colors flex items-center space-x-2
-            ${location.pathname === path 
-              ? "text-blue-600 dark:text-blue-400 font-medium" 
-              : "hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800"}`}
-        >
-          {icon}
-          <span>{label}</span>
-          <span 
-            className={`absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 dark:bg-blue-400 
-              transform origin-left transition-transform duration-300 ease-out
-              ${location.pathname === path ? "scale-x-100" : "scale-x-0 hover:scale-x-100"}`}
-          ></span>
-        </Link>
-      ))}
-    </div>
-  );
-};
-
 const MobileNavigation: React.FC<{ 
   isOpen: boolean; 
   setIsOpen: (open: boolean) => void; 
-  location: any;
+  location: { pathname: string };
   darkMode: boolean;
   setDarkMode: (mode: boolean) => void;
 }> = ({ isOpen, setIsOpen, location, darkMode, setDarkMode }) => {
