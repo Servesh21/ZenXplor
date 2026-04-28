@@ -1046,8 +1046,41 @@ def search_files():
     service_filter = request.args.get("service", "").lower()
     filetype_filter = request.args.get("filetype", "").lower()
 
+    # If query is empty, we just return recent files sorted by last_modified/id
     if not query:
-        return jsonify({"error": "Search query is required"}), 400
+        try:
+            with current_app.app_context():
+                session = scoped_session(sessionmaker(bind=db.engine))
+                filters = [IndexedFile.user_id == user_id]
+                if service_filter:
+                    if service_filter == "local":
+                        filters.append(or_(IndexedFile.storage_type == "local", IndexedFile.storage_type == "local_upload"))
+                    else:
+                        filters.append(IndexedFile.storage_type == service_filter)
+                if filetype_filter:
+                    filters.append(IndexedFile.filetype == filetype_filter)
+
+                recent_files = session.query(IndexedFile).filter(*filters).order_by(IndexedFile.id.desc()).limit(limit).offset(offset).all()
+                results = [{
+                    "filename": f.filename,
+                    "filepath": f.filepath,
+                    "storage_type": f.storage_type,
+                    "cloud_file_id": f.cloud_file_id,
+                    "is_favorite": f.is_favorite
+                } for f in recent_files]
+                
+                total = session.query(IndexedFile).filter(*filters).count()
+                has_more = (offset + limit) < total
+                session.remove()
+                
+                return jsonify({
+                    "results": results,
+                    "has_more": has_more,
+                    "offset": offset + len(results)
+                }), 200
+        except Exception as e:
+            logging.error(f"Recent files fetch error: {e}")
+            return jsonify({"results": [], "has_more": False}), 200
 
     all_results = []
     seen_keys = set()

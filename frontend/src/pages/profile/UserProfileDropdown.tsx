@@ -1,208 +1,100 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { UserCircle, LogOut, Folder, Camera } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
-const predefinedImages = [
-  "https://avataaars.io/?avatarStyle=Circle&topType=ShortHairShortCurly&accessoriesType=Blank&hairColor=BlondeGolden&facialHairType=MoustacheFancy&facialHairColor=Auburn&clotheType=BlazerShirt&eyeType=Default&eyebrowType=Default&mouthType=Smile&skinColor=Pale",
-  "https://avataaars.io/?avatarStyle=Circle&topType=ShortHairShortFlat&accessoriesType=Blank&hairColor=Black&facialHairType=BeardMedium&facialHairColor=Black&clotheType=BlazerSweater&eyeType=Default&eyebrowType=Default&mouthType=Default&skinColor=Brown",
-  "https://avataaars.io/?avatarStyle=Circle&topType=ShortHairDreads02&accessoriesType=Prescription02&hairColor=Auburn&facialHairType=BeardLight&facialHairColor=BrownDark&clotheType=ShirtCrewNeck&clotheColor=White&eyeType=Default&eyebrowType=UnibrowNatural&mouthType=Concerned&skinColor=Light",
-  "https://avataaars.io/?avatarStyle=Circle&topType=ShortHairShortCurly&accessoriesType=Blank&hairColor=Black&facialHairType=Blank&clotheType=Hoodie&clotheColor=Blue03&eyeType=Default&eyebrowType=Default&mouthType=Smile&skinColor=Pale",
-  "https://avataaars.io/?avatarStyle=Circle&topType=ShortHairShortCurly&accessoriesType=Blank&hairColor=Black&facialHairType=Blank&clotheType=Hoodie&clotheColor=Blue03&eyeType=Default&eyebrowType=Default&mouthType=Smile&skinColor=DarkBrown"
-];
+interface User {
+  username: string;
+  email: string;
+  profile_picture?: string;
+}
 
-const UserProfileDropdown: React.FC<{
-  user: { username: string; email: string; profile_picture?: string } | null;
+interface UserProfileDropdownProps {
+  user: User;
   handleLogout: () => void;
-  setUser?: React.Dispatch<React.SetStateAction<{ username: string; email: string; profile_picture?: string } | null>>;
-}> = ({ user, handleLogout, setUser }) => {
+}
 
+const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({ user, handleLogout }) => {
+  const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [showAvatarSelector, setShowAvatarSelector] = useState(false);
-  const [selectedAvatar, setSelectedAvatar] = useState(user?.profile_picture || "");
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [updateMessage, setUpdateMessage] = useState("");
-  const navigate = useNavigate();
 
   useEffect(() => {
-    if (user?.profile_picture) {
-      setSelectedAvatar(user.profile_picture);
-    }
-  }, [user?.profile_picture]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false);
-        setShowAvatarSelector(false);
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleAvatarChange = async (avatarUrl: string) => {
-    if (!user || !setUser) return;
-
-    setIsUpdating(true);
-    setSelectedAvatar(avatarUrl);
-
-    try {
-      const response = await fetch(`${BACKEND_URL}/auth/edit-profile`, {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: user.username,
-          email: user.email,
-          profile_picture: avatarUrl
-        })
-      });
-
-
-      if (response.ok) {
-        setUser({ ...user, profile_picture: avatarUrl });
-        setUpdateMessage("Avatar updated!");
-        setTimeout(() => {
-          setShowAvatarSelector(false);
-          setUpdateMessage("");
-        }, 1500);
-      } else {
-        setUpdateMessage("Failed to update avatar");
-        setTimeout(() => setUpdateMessage(""), 3000);
-      }
-    } catch (error) {
-      console.error(error);
-      setUpdateMessage("Error updating avatar");
-      setTimeout(() => setUpdateMessage(""), 3000);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
   return (
-    <div className="relative">
-      {user ? (
-        <div className="relative" ref={dropdownRef}>
-          <button
-            onClick={() => setIsDropdownOpen((prev) => !prev)}
-            className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white shadow-md hover:shadow-lg transition-all duration-300"
-            aria-expanded={isDropdownOpen}
-            aria-label="User menu"
-          >
-            {user.profile_picture ? (
-              <img
-                src={user.profile_picture}
-                alt="Profile"
-                className="w-11 h-11 rounded-full object-cover border-2 border-white"
-              />
-            ) : (
-              <UserCircle size={28} className="text-white" />
-            )}
-          </button>
+    <div ref={dropdownRef} className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-9 h-9 rounded-full overflow-hidden border-2 border-primary/30 hover:border-primary/60 transition-all shadow-lg shadow-primary/5 focus:ring-2 focus:ring-primary/20"
+      >
+        {user.profile_picture ? (
+          <img src={user.profile_picture} alt="Profile" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-primary/20 flex items-center justify-center text-primary text-sm font-bold">
+            {user.username?.charAt(0).toUpperCase() || "U"}
+          </div>
+        )}
+      </button>
 
-          {isDropdownOpen && (
-            <div className="absolute right-0 mt-3 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-xl rounded-xl overflow-hidden z-50">
-              {/* User Details as a Button */}
-              <div className="p-4 relative">
-                <button
-                  onClick={() => navigate("/profile", { state: { user } })}
-                  className="flex items-center space-x-4 w-full text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-2 transition-colors duration-200"
-                >
-                  <div className="relative group">
-                    {user.profile_picture ? (
-                      <img
-                        src={user.profile_picture}
-                        alt="Profile"
-                        className="w-14 h-14 rounded-full object-cover border-2 border-blue-100 dark:border-gray-600"
-                      />
-                    ) : (
-                      <div className="w-14 h-14 rounded-full bg-blue-100 dark:bg-gray-700 flex items-center justify-center">
-                        <UserCircle size={28} className="text-blue-500 dark:text-gray-300" />
-                      </div>
-                    )}
-                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white dark:border-gray-800"></div>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-900 dark:text-white text-lg">{user.username}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
-                  </div>
-                </button>
-
-                {setUser && (
-                  <button
-                    onClick={() => setShowAvatarSelector(prev => !prev)}
-                    className="absolute bottom-1 left-4 bg-blue-500 hover:bg-blue-600 text-white rounded-full p-1.5 shadow-md transition-colors"
-                    title="Change avatar"
-                  >
-                    <Camera size={18} />
-                  </button>
-                )}
-              </div>
-
-              {/* Avatar Selector */}
-              {showAvatarSelector && (
-                <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-700">
-                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 mt-2 flex justify-between items-center">
-                    <span>Select an avatar</span>
-                    {updateMessage && (
-                      <span className="text-xs text-green-600 dark:text-green-400">{updateMessage}</span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-5 gap-2">
-                    {predefinedImages.map((img, index) => (
-                      <div
-                        key={index}
-                        className={`relative cursor-pointer rounded-full border-2 ${selectedAvatar === img ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-200 hover:border-blue-300'
-                          } transition-all`}
-                        onClick={() => !isUpdating && handleAvatarChange(img)}
-                      >
-                        <img
-                          src={img}
-                          alt={`Avatar option ${index + 1}`}
-                          className="w-full h-auto rounded-full"
-                        />
-                      </div>
-                    ))}
-                  </div>
+      {isOpen && (
+        <div className="absolute right-0 mt-3 w-64 bg-surface-container border border-outline-variant/15 rounded-xl shadow-2xl shadow-black/40 backdrop-blur-xl overflow-hidden z-[100]"
+             style={{ animation: "fadeIn 0.15s ease-out" }}>
+          {/* User Info */}
+          <div className="px-4 py-4 border-b border-outline-variant/10">
+            <div className="flex items-center gap-3">
+              {user.profile_picture ? (
+                <img
+                  src={user.profile_picture}
+                  alt="Profile"
+                  className="w-10 h-10 rounded-full object-cover border border-outline-variant/20"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary text-base font-bold">
+                  {user.username?.charAt(0).toUpperCase() || "U"}
                 </div>
               )}
-
-              <div className={`${showAvatarSelector ? 'border-t' : ''} border-gray-100 dark:border-gray-700`}>
-                {/* Menu Items */}
-                <Link to="/storage-overview" className="flex items-center px-4 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
-                  <Folder size={18} className="mr-3 text-blue-500 dark:text-blue-400" />
-                  <span>Storage Access</span>
-                </Link>
-
-                {/* <Link to="/settings" className="flex items-center px-4 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
-                  <Settings size={18} className="mr-3 text-blue-500 dark:text-blue-400" /> 
-                  <span>Settings</span>
-                </Link>
-
-                <Link to="/help" className="flex items-center px-4 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
-                  <HelpCircle size={18} className="mr-3 text-blue-500 dark:text-blue-400" /> 
-                  <span>Help Center</span>
-                </Link> */}
-              </div>
-
-              <div className="border-t border-gray-100 dark:border-gray-700 p-4">
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors duration-200"
-                >
-                  <LogOut size={18} />
-                  <span>Sign Out</span>
-                </button>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-on-surface truncate">{user.username}</p>
+                <p className="text-[11px] text-on-surface-variant truncate font-mono">{user.email}</p>
               </div>
             </div>
-          )}
+          </div>
+
+          {/* Actions */}
+          <div className="p-2">
+            <a
+              href="/settings"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"
+              onClick={() => setIsOpen(false)}
+            >
+              <span className="material-symbols-outlined text-[18px]">settings</span>
+              Settings
+            </a>
+            <a
+              href="/storage-overview"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"
+              onClick={() => setIsOpen(false)}
+            >
+              <span className="material-symbols-outlined text-[18px]">sync_alt</span>
+              Integrations
+            </a>
+            <div className="my-1 border-t border-outline-variant/10"></div>
+            <button
+              onClick={() => {
+                handleLogout();
+                setIsOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[18px]">logout</span>
+              Sign out
+            </button>
+          </div>
         </div>
-      ) : (
-        <Link to="/login" className="px-6 py-2.5 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-medium hover:shadow-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-300">
-          Login
-        </Link>
       )}
     </div>
   );

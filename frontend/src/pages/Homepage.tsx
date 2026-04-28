@@ -1,10 +1,44 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import React from "react";
+import { World } from "../components/ui/globe";
+
+const globeConfig = {
+  pointSize: 6,
+  globeColor: "#062056",
+  showAtmosphere: true,
+  atmosphereColor: "#FFFFFF",
+  atmosphereAltitude: 0.1,
+  polygonColor: "rgba(255,255,255,0.7)",
+  ambientLight: "#38bdf8",
+  emissive: "#062056",
+  emissiveIntensity: 0.1,
+  shininess: 0.9,
+  arcTime: 1000,
+  arcLength: 0.9,
+  rings: 3,
+  maxRings: 4,
+  initialPosition: { lat: 22.3193, lng: 114.1694 },
+  autoRotate: true,
+  autoRotateSpeed: 1,
+};
+
+const sampleArcs = [
+  { order: 1, startLat: -19.885592, startLng: -43.951191, endLat: -22.9068, endLng: -43.1729, arcAlt: 0.1, color: "#8b5cf6" },
+  { order: 2, startLat: 28.6139, startLng: 77.209, endLat: 34.0522, endLng: -118.2437, arcAlt: 0.2, color: "#3b82f6" },
+  { order: 3, startLat: 51.5074, startLng: -0.1278, endLat: 40.7128, endLng: -74.006, arcAlt: 0.3, color: "#6366f1" },
+  { order: 4, startLat: 35.6762, startLng: 139.6503, endLat: 37.7749, endLng: -122.4194, arcAlt: 0.25, color: "#8b5cf6" },
+  { order: 5, startLat: -33.8688, startLng: 151.2093, endLat: 1.3521, endLng: 103.8198, arcAlt: 0.15, color: "#3b82f6" },
+  { order: 6, startLat: 52.52, startLng: 13.405, endLat: 48.8566, endLng: 2.3522, arcAlt: 0.1, color: "#6366f1" },
+  { order: 7, startLat: 19.076, startLng: 72.8777, endLat: 25.2048, endLng: 55.2708, arcAlt: 0.1, color: "#8b5cf6" },
+  { order: 8, startLat: -26.2041, startLng: 28.0473, endLat: -1.2921, endLng: 36.8219, arcAlt: 0.2, color: "#3b82f6" },
+  { order: 9, startLat: 31.2304, startLng: 121.4737, endLat: 39.9042, endLng: 116.4074, arcAlt: 0.12, color: "#6366f1" },
+  { order: 10, startLat: 45.5017, startLng: -73.5673, endLat: 53.5461, endLng: -113.4938, arcAlt: 0.15, color: "#8b5cf6" }
+];
 
 const Homepage: React.FC = () => {
   return (
-    <div className="bg-[#080910] text-[#e3e1ea] font-sans selection:bg-primary selection:text-on-primary-container min-h-screen">
+    <div className="bg-surface-container-lowest text-[#e3e1ea] font-sans selection:bg-primary selection:text-on-primary-container min-h-screen">
       <main className="pt-32">
         {/* Hero Section */}
         <section className="max-w-7xl mx-auto px-8 mb-32 grid lg:grid-cols-2 gap-12 items-center">
@@ -54,19 +88,15 @@ const Homepage: React.FC = () => {
               </div>
             </motion.div>
           </div>
-          
-          <div className="relative">
-            <motion.div 
-               initial={{ opacity: 0 }}
-               animate={{ opacity: 0.8 }}
-               transition={{ duration: 1, delay: 0.3 }}
-               className="aspect-square rounded-full overflow-hidden mix-blend-lighten grayscale"
-            >
-              <img className="w-full h-full object-cover" data-alt="atmospheric dark globe from space with glowing data networks and soft blue illumination against a black background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDjZ9n4F-EdS91RocWTyCWJO4tqbAj7_xfBkaLpEPJ1pytB9YuYrtuzQ_M3AzdvkOa0C__4q8Jdv6-tfOhKEn2apASOJxY7CpTj5Zv5qskZuOjw83X4eQjHCaWOO1mlWaiCidhqqDyH1TpAmxM3Th7cXry4GOwi7Ahft-u1EYSvw3CIGPheute_bZLgqMWumy8suLjEkxHBqUJg-A7up6ugKDVXCFkDBXc5FmMv3Ta0tTjbwbYmb5cZ5Vk-R-hC5eOQ-UxSky57Yok" alt="Globe" />
-            </motion.div>
-            <div className="absolute inset-0 bg-gradient-to-t from-[#080910] via-transparent to-transparent"></div>
-          </div>
         </section>
+
+        {/* Fixed Globe Background Component */}
+        <div className="fixed bottom-0 right-0 w-[600px] h-[600px] pointer-events-none z-0 translate-x-1/4 translate-y-1/4 overflow-hidden">
+          <div className="w-full h-full relative opacity-60">
+            <World globeConfig={globeConfig} data={sampleArcs} /> 
+            <div className="absolute inset-0 bg-gradient-to-t from-surface-container-lowest via-transparent to-transparent"></div>
+          </div>
+        </div>
 
         {/* Trust Bar */}
         <section className="mb-32 overflow-hidden py-8 bg-surface-container-lowest/30">

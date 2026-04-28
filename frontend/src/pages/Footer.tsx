@@ -3,18 +3,35 @@ import { Link } from "react-router-dom";
 
 const Footer: React.FC = () => {
   return (
-    <footer className="bg-white-900 text-black p-6 w-full dark:bg-gray-900 dark:text-white shadow-md mt-10">
-      <div className="container mx-auto flex flex-col md:flex-row justify-between items-center">
-        <div className="mb-4 md:mb-0">
-          <p>© 2025 Universal File Search - All Rights Reserved</p>
+    <footer className="bg-surface-container-lowest w-full py-12 border-t border-white/5">
+      <div className="flex flex-col md:flex-row justify-between items-center px-12 max-w-7xl mx-auto">
+        <div className="flex flex-col gap-2 mb-8 md:mb-0">
+          <div className="text-lg font-bold text-white">ZenXplor</div>
+          <p className="font-mono text-[11px] uppercase tracking-[0.5px] text-[#71717A]">
+            © 2025 ZenXplor. Precision in Architecture.
+          </p>
         </div>
-        <div className="flex gap-6">
-          <Link to="/terms" className="text-black hover:text-black transition-colors dark:hover:text-white dark:text-white">
-            Terms of Service
-          </Link>
-          <Link to="/privacy" className="text-black hover:text-black transition-colors dark:hover:text-white dark:text-white">
+        <div className="flex gap-8">
+          <Link
+            to="/privacy"
+            className="font-mono text-[11px] uppercase tracking-[0.5px] text-[#71717A] hover:text-white transition-colors opacity-80 hover:opacity-100"
+          >
             Privacy Policy
           </Link>
+          <Link
+            to="/terms"
+            className="font-mono text-[11px] uppercase tracking-[0.5px] text-[#71717A] hover:text-white transition-colors opacity-80 hover:opacity-100"
+          >
+            Terms of Service
+          </Link>
+          <a
+            href="https://github.com/Servesh21/file_search1"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-[11px] uppercase tracking-[0.5px] text-[#71717A] hover:text-white transition-colors opacity-80 hover:opacity-100"
+          >
+            GitHub
+          </a>
         </div>
       </div>
     </footer>
