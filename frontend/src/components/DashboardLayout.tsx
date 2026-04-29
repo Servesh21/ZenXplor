@@ -22,6 +22,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, agentRunnin
   };
 
   const sidebarLinks = [
+    { path: "/home", icon: "home", label: "Home" },
     { path: "/file-search", icon: "search", label: "Search" },
     { path: "/storage-overview", icon: "sync_alt", label: "Integrations" },
     { path: "/settings", icon: "settings", label: "Settings" },

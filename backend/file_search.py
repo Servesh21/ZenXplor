@@ -1453,3 +1453,55 @@ def toggle_favorite(file_path):
     db.session.commit()
 
     return jsonify({"message": "Favorite status updated", "file": file.to_dict()})
+
+
+@search_bp.route('/storage/stats', methods=['GET'])
+@jwt_required()
+def get_storage_stats():
+    user_id = get_jwt_identity()
+    
+    stats = {
+        "local": {"connected": True, "count": 0, "status": "Connected"},
+        "google_drive": {"connected": False, "count": 0, "status": "Not Connected"},
+        "dropbox": {"connected": False, "count": 0, "status": "Not Connected"},
+        "gmail": {"connected": False, "count": 0, "status": "Not Connected"}
+    }
+    
+    try:
+        # Get file counts per storage_type
+        counts = db.session.query(
+            IndexedFile.storage_type, 
+            db.func.count(IndexedFile.id)
+        ).filter(
+            IndexedFile.user_id == user_id,
+            IndexedFile.is_folder == False
+        ).group_by(IndexedFile.storage_type).all()
+        
+        local_count = sum([count for storage_type, count in counts if storage_type in ('local', 'local_upload')])
+        stats["local"]["count"] = local_count
+        
+        gdrive_count = sum([count for storage_type, count in counts if storage_type == 'google_drive'])
+        stats["google_drive"]["count"] = gdrive_count
+        
+        dropbox_count = sum([count for storage_type, count in counts if storage_type == 'dropbox'])
+        stats["dropbox"]["count"] = dropbox_count
+        
+        # Update connection status based on linked accounts
+        accounts = CloudStorageAccount.query.filter_by(user_id=user_id).all()
+        
+        for account in accounts:
+            provider = account.provider.lower()
+            if 'google' in provider or 'drive' in provider:
+                stats["google_drive"]["connected"] = True
+                stats["google_drive"]["status"] = "Connected"
+            elif 'dropbox' in provider:
+                stats["dropbox"]["connected"] = True
+                stats["dropbox"]["status"] = "Connected"
+            elif 'gmail' in provider:
+                stats["gmail"]["connected"] = True
+                stats["gmail"]["status"] = "Connected"
+                
+        return jsonify(stats), 200
+    except Exception as e:
+        logging.error(f"Error fetching storage stats: {e}")
+        return jsonify({"error": "Failed to fetch storage stats"}), 500

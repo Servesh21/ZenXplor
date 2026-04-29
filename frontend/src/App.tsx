@@ -6,6 +6,7 @@ import PublicRoute from "./components/PublicRoute";
 
 import Navbar from "./pages/Navbar";
 import Homepage from "./pages/Homepage";
+import Home from "./pages/Home";
 import FileSearch from "./pages/FileSearch";
 import SignUp from "./pages/SignUp";
 import StorageOverview from "./pages/profile/StorageOverview";
@@ -20,7 +21,7 @@ const AppContent: React.FC = () => {
   const location = useLocation();
 
   // Pages that should NOT show the public navbar/footer
-  const hideChrome = ["/login", "/file-search", "/storage-overview", "/settings"].includes(
+  const hideChrome = ["/login", "/file-search", "/storage-overview", "/settings", "/home"].includes(
     location.pathname
   );
 
@@ -36,6 +37,14 @@ const AppContent: React.FC = () => {
               <PublicRoute>
                 <SignUp />
               </PublicRoute>
+            }
+          />
+          <Route
+            path="/home"
+            element={
+              <ProtectedRoute>
+                <Home />
+              </ProtectedRoute>
             }
           />
           <Route
