@@ -6,13 +6,12 @@ import axios from "axios";
 import { BACKEND_URL, AGENT_URL } from "../api";
 import {
   FaCloud,
-  FaDesktop,
   FaFilePdf,
   FaFileWord,
   FaFileImage,
   FaFolder,
   FaFileAlt,
-  FaEnvelope,
+  
 } from "react-icons/fa";
 
 interface StorageStats {
