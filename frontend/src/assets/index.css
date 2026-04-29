@@ -1,83 +1,134 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+@theme {
+  --color-surface-container-high: #292a30;
+  --color-error-container: #93000a;
+  --color-primary-fixed-dim: #c4c0ff;
+  --color-on-secondary-fixed: #1a1b23;
+  --color-secondary-fixed-dim: #c6c5d1;
+  --color-on-tertiary-fixed-variant: #444559;
+  --color-tertiary-container: #8e8fa5;
+  --color-on-error: #690005;
+  --color-primary: #c4c0ff;
+  --color-primary-container: #8781ff;
+  --color-surface-bright: #383940;
+  --color-on-primary: #2000a4;
+  --color-on-surface-variant: #c7c4d8;
+  --color-inverse-on-surface: #2f3037;
+  --color-on-secondary: #2f3039;
+  --color-outline-variant: #464555;
+  --color-secondary: #c6c5d1;
+  --color-on-secondary-fixed-variant: #46464f;
+  --color-on-surface: #e3e1ea;
+  --color-surface-container: #1e1f26;
+  --color-on-secondary-container: #b8b7c2;
+  --color-on-tertiary-container: #26283a;
+  --color-on-primary-fixed-variant: #3622ca;
+  --color-surface-container-highest: #34343b;
+  --color-tertiary-fixed-dim: #c4c5dc;
+  --color-error: #ffb4ab;
+  --color-on-background: #e3e1ea;
+  --color-outline: #918fa1;
+  --color-on-error-container: #ffdad6;
+  --color-surface: #121319;
+  --color-inverse-primary: #4f44e2;
+  --color-surface-container-lowest: #0d0e14;
+  --color-secondary-fixed: #e3e1ed;
+  --color-surface-dim: #121319;
+  --color-surface-variant: #34343b;
+  --color-surface-tint: #c4c0ff;
+  --color-background: #121319;
+  --color-primary-fixed: #e3dfff;
+  --color-inverse-surface: #e3e1ea;
+  --color-surface-container-low: #1a1b22;
+  --color-on-tertiary-fixed: #181a2b;
+  --color-on-tertiary: #2d2f41;
+  --color-on-primary-fixed: #100069;
+  --color-on-primary-container: #1b0091;
+  --color-secondary-container: #484852;
 
-/* Ensure smooth transitions */
-* {
+  --font-headline: 'Inter', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-label: 'Inter', sans-serif;
+  --font-mono: 'Geist Mono', monospace;
 
-  box-sizing: border-box;
-  font-family: Arial, Helvetica, sans-serif;
-  transition: background-color 0.3s, color 0.3s;
+  --radius-lg: 0.5rem;
+  --radius-xl: 1rem;
+  --radius-full: 9999px;
 }
-/* index.css or globals.css */
-:root {
-  --background-color: white;
-  --text-color: black;
-}
 
-.dark {
-  --background-color: #111827; /* Dark background */
-  --text-color: white;
+/* ─── Base ─── */
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background-color: var(--background-color);
-  color: var(--text-color);
-  transition: background-color 0.3s ease, color 0.3s ease;
+  background-color: #0d0e14;
+  color: #e3e1ea;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
-/* Custom styles */
+
 html, body, #root {
-    /* width: 100vw; */
-    height: 100vh;
-    margin: 0;
-    padding: 0;
-    /* overflow: hidden;  */
-    background-color: white;
-  }
-  
-  .fullscreen {
-    /* width: 100vw; */
-    height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background-color: #f5f5f5; /* Light gray background */
-  }
-  
-
-.input-box {
-  border: 1px solid #d1d5db;
-  padding: 10px;
-  border-radius: 8px;
-  width: 100%;
-  transition: border-color 0.3s ease;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #0d0e14;
 }
 
-.input-box:focus {
-  border-color: #2563eb;
-  outline: none;
+/* ─── Design System Utilities ─── */
+.glass-panel {
+  background: rgba(30, 31, 38, 0.7);
+  backdrop-filter: blur(20px);
 }
 
-.card {
-  background: white;
-  padding: 20px;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+.signature-glow {
+  background: linear-gradient(45deg, #c4c0ff 0%, #8781ff 100%);
 }
 
-.btn-primary {
-  background-color: #2563eb;
-  color: white;
-  padding: 10px 15px;
-  border-radius: 8px;
-  transition: background-color 0.3s;
+.text-gradient {
+  background: linear-gradient(to right, #ffffff, #c4c0ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-.btn-primary:hover {
-  background-color: #1e40af;
+.ghost-border {
+  border: 1px solid rgba(70, 69, 85, 0.15);
 }
 
- @keyframes fadeIn {
-   from { opacity: 0; }
-   to { opacity: 1; }
- }
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* ─── Scrollbar ─── */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(196, 192, 255, 0.15);
+  border-radius: 999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(196, 192, 255, 0.3);
+}
+
+/* ─── Animations ─── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Smooth transitions (non-intrusive) ─── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}

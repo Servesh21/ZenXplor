@@ -6,7 +6,7 @@ import time
 import requests
 from datetime import datetime
 from flask import Blueprint, request, jsonify, redirect, current_app
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from models import db, CloudStorageAccount, IndexedFile
 from elasticsearch import Elasticsearch, helpers
 from flask_cors import CORS
@@ -85,13 +85,54 @@ def refresh_dropbox_access_token(refresh_token):
 # --------------------------
 # Callback Endpoints
 # --------------------------
+# Note: These callbacks do NOT use @jwt_required because cookies are often
+# lost during cross-domain OAuth redirects (Google → Backend → Frontend).
+# Instead, the frontend passes the user_id via the OAuth `state` parameter,
+# and the backend verifies it using a signed JWT state token.
+
+import jwt as pyjwt
+
+def _create_oauth_state(user_id: str) -> str:
+    """Create a signed state token containing the user_id."""
+    secret = os.getenv("SECRET_KEY", "zenxplor-secret-key")
+    return pyjwt.encode({"user_id": user_id}, secret, algorithm="HS256")
+
+def _decode_oauth_state(state: str):
+    """Decode the state token and return user_id."""
+    secret = os.getenv("SECRET_KEY", "zenxplor-secret-key")
+    try:
+        payload = pyjwt.decode(state, secret, algorithms=["HS256"])
+        return payload.get("user_id")
+    except Exception:
+        return None
+
+# Endpoint for frontend to get a signed state token before OAuth redirect
+@cloud_storage_bp.route("/cloud-storage/oauth-state", methods=["GET"])
+@jwt_required()
+def get_oauth_state():
+    user_id = get_jwt_identity()
+    state = _create_oauth_state(user_id)
+    return jsonify({"state": state}), 200
 
 @cloud_storage_bp.route("/cloud-storage/callback", methods=["GET"])
-@jwt_required()
 def google_callback():
     code = request.args.get("code")
+    state = request.args.get("state")
     if not code:
         return jsonify({"error": "Authorization code not found"}), 400
+
+    # Try to get user_id from state param first, then fall back to JWT cookie
+    user_id = None
+    if state:
+        user_id = _decode_oauth_state(state)
+    if not user_id:
+        try:
+            verify_jwt_in_request()
+            user_id = get_jwt_identity()
+        except Exception:
+            pass
+    if not user_id:
+        return redirect(f"{FRONTEND_REDIRECT_URI}?status=error&message=auth_required")
 
     from flask import url_for
     redirect_uri_dynamic = url_for("cloud_storage.google_callback", _external=True)
@@ -107,7 +148,7 @@ def google_callback():
     print("Google Tokens:", tokens)
 
     if "access_token" not in tokens or "refresh_token" not in tokens:
-        return jsonify({"error": "Failed to retrieve tokens", "details": tokens}), 400
+        return redirect(f"{FRONTEND_REDIRECT_URI}?status=error&message=token_failed")
 
     user_info_url = "https://www.googleapis.com/oauth2/v2/userinfo"
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
@@ -115,11 +156,7 @@ def google_callback():
     print("Google User Info:", user_info)
     email = user_info.get("email")
     if not email:
-        return jsonify({"error": "Failed to retrieve email"}), 400
-
-    user_id = get_jwt_identity()
-    if not user_id:
-        return jsonify({"error": "User not authenticated"}), 401
+        return redirect(f"{FRONTEND_REDIRECT_URI}?status=error&message=no_email")
 
     existing_account = CloudStorageAccount.query.filter_by(user_id=user_id, email=email, provider="Google Drive").first()
     if existing_account:
@@ -143,11 +180,25 @@ def google_callback():
     return redirect(frontend_redirect_url)
 
 @cloud_storage_bp.route("/cloud-storage/dropbox/callback", methods=["GET"])
-@jwt_required()
 def dropbox_callback():
     code = request.args.get("code")
+    state = request.args.get("state")
     if not code:
         return jsonify({"error": "Authorization code not found"}), 400
+
+    # Try to get user_id from state param first, then fall back to JWT cookie
+    user_id = None
+    if state:
+        user_id = _decode_oauth_state(state)
+    if not user_id:
+        try:
+            verify_jwt_in_request()
+            user_id = get_jwt_identity()
+        except Exception:
+            pass
+    if not user_id:
+        return redirect(f"{FRONTEND_REDIRECT_URI}?status=error&message=auth_required")
+
     print("Client ID:", DROPBOX_CLIENT_ID)
     from flask import url_for
     redirect_uri_dynamic = url_for("cloud_storage.dropbox_callback", _external=True)
@@ -164,7 +215,7 @@ def dropbox_callback():
     print("Dropbox Tokens:", tokens)
 
     if "access_token" not in tokens:
-        return jsonify({"error": "Failed to retrieve tokens", "details": tokens}), 400
+        return redirect(f"{FRONTEND_REDIRECT_URI}?status=error&message=token_failed")
 
     # Get user info from Dropbox
     user_info_url = "https://api.dropboxapi.com/2/users/get_current_account"
@@ -173,11 +224,7 @@ def dropbox_callback():
     print("Dropbox User Info:", user_info)
     email = user_info.get("email")
     if not email:
-        return jsonify({"error": "Failed to retrieve email"}), 400
-
-    user_id = get_jwt_identity()
-    if not user_id:
-        return jsonify({"error": "User not authenticated"}), 401
+        return redirect(f"{FRONTEND_REDIRECT_URI}?status=error&message=no_email")
 
     existing_account = CloudStorageAccount.query.filter_by(user_id=user_id, email=email, provider="Dropbox").first()
     if existing_account:
@@ -188,7 +235,7 @@ def dropbox_callback():
             user_id=user_id,
             provider="Dropbox",
             email=email,
-            permissions="Read files, Search files",  # Adjust permissions as needed
+            permissions="Read files, Search files",
             access_token=tokens["access_token"],
             last_synced=datetime.utcnow()
         )
@@ -197,6 +244,8 @@ def dropbox_callback():
     db.session.commit()
     frontend_redirect_url = f"{FRONTEND_REDIRECT_URI}?status=success&email={email}"
     return redirect(frontend_redirect_url)
+
+
 
 # --------------------------
 # Fetch Connected Cloud Storage Accounts & Refresh Tokens

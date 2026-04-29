@@ -1046,8 +1046,48 @@ def search_files():
     service_filter = request.args.get("service", "").lower()
     filetype_filter = request.args.get("filetype", "").lower()
 
+    # If query is empty, we just return recent activity: files only, sorted by modification
     if not query:
-        return jsonify({"error": "Search query is required"}), 400
+        try:
+            with current_app.app_context():
+                session = scoped_session(sessionmaker(bind=db.engine))
+                filters = [IndexedFile.user_id == user_id, IndexedFile.is_folder == False, IndexedFile.last_accessed.isnot(None)]
+                
+                if service_filter:
+                    if service_filter == "local":
+                        filters.append(or_(IndexedFile.storage_type == "local", IndexedFile.storage_type == "local_upload"))
+                    else:
+                        filters.append(IndexedFile.storage_type == service_filter)
+                if filetype_filter:
+                    filters.append(IndexedFile.filetype == filetype_filter)
+
+                # Recent activity is limited to a fixed set of the most recent items
+                RECENT_LIMIT = 24
+                recent_files = session.query(IndexedFile).filter(*filters)\
+                    .order_by(IndexedFile.last_accessed.desc())\
+                    .limit(RECENT_LIMIT).all()
+                
+                results = [{
+                    "id": f.id,
+                    "filename": f.filename,
+                    "filepath": f.filepath,
+                    "storage_type": f.storage_type,
+                    "cloud_file_id": f.cloud_file_id,
+                    "is_favorite": f.is_favorite
+                } for f in recent_files]
+                
+                session.remove()
+                
+                # For recent activity, we don't paginate past the fixed set
+                return jsonify({
+                    "results": results,
+                    "total_results": len(results),
+                    "has_more": False,
+                    "offset": len(results)
+                }), 200
+        except Exception as e:
+            logging.error(f"Recent files fetch error: {e}")
+            return jsonify({"results": [], "has_more": False}), 200
 
     all_results = []
     seen_keys = set()
@@ -1194,11 +1234,11 @@ def search_files():
     # 3️⃣ Pagination after merging
     total_results = len(all_results)
     paginated = all_results[offset:offset + limit]
-    print(f"Total results: {total_results}, Paginated results: {len(paginated)}")  # Debugging log
     has_more = offset + limit < total_results
 
     return jsonify({
         "results": paginated,
+        "total_results": total_results,
         "offset": offset + len(paginated),
         "limit": limit,
         "has_more": has_more
@@ -1414,3 +1454,78 @@ def toggle_favorite(file_path):
     db.session.commit()
 
     return jsonify({"message": "Favorite status updated", "file": file.to_dict()})
+
+
+@search_bp.route('/file/access', methods=['POST'])
+@jwt_required()
+def log_file_access():
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    
+    file = None
+    if data.get('filepath'):
+        file = IndexedFile.query.filter_by(filepath=data['filepath'], user_id=user_id).first()
+    elif data.get('cloud_file_id'):
+        file = IndexedFile.query.filter_by(cloud_file_id=data['cloud_file_id'], user_id=user_id).first()
+    elif data.get('id'):
+        file = IndexedFile.query.filter_by(id=data['id'], user_id=user_id).first()
+        
+    if not file:
+        return jsonify({"error": "File not found"}), 404
+        
+    file.last_accessed = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({"message": "Access logged"}), 200
+
+
+@search_bp.route('/storage/stats', methods=['GET'])
+@jwt_required()
+def get_storage_stats():
+    user_id = get_jwt_identity()
+    
+    stats = {
+        "local": {"connected": True, "count": 0, "status": "Connected"},
+        "google_drive": {"connected": False, "count": 0, "status": "Not Connected"},
+        "dropbox": {"connected": False, "count": 0, "status": "Not Connected"},
+        "gmail": {"connected": False, "count": 0, "status": "Not Connected"}
+    }
+    
+    try:
+        # Get file counts per storage_type
+        counts = db.session.query(
+            IndexedFile.storage_type, 
+            db.func.count(IndexedFile.id)
+        ).filter(
+            IndexedFile.user_id == user_id,
+            IndexedFile.is_folder == False
+        ).group_by(IndexedFile.storage_type).all()
+        
+        local_count = sum([count for storage_type, count in counts if storage_type in ('local', 'local_upload')])
+        stats["local"]["count"] = local_count
+        
+        gdrive_count = sum([count for storage_type, count in counts if storage_type == 'google_drive'])
+        stats["google_drive"]["count"] = gdrive_count
+        
+        dropbox_count = sum([count for storage_type, count in counts if storage_type == 'dropbox'])
+        stats["dropbox"]["count"] = dropbox_count
+        
+        # Update connection status based on linked accounts
+        accounts = CloudStorageAccount.query.filter_by(user_id=user_id).all()
+        
+        for account in accounts:
+            provider = account.provider.lower()
+            if 'google' in provider or 'drive' in provider:
+                stats["google_drive"]["connected"] = True
+                stats["google_drive"]["status"] = "Connected"
+            elif 'dropbox' in provider:
+                stats["dropbox"]["connected"] = True
+                stats["dropbox"]["status"] = "Connected"
+            elif 'gmail' in provider:
+                stats["gmail"]["connected"] = True
+                stats["gmail"]["status"] = "Connected"
+                
+        return jsonify(stats), 200
+    except Exception as e:
+        logging.error(f"Error fetching storage stats: {e}")
+        return jsonify({"error": "Failed to fetch storage stats"}), 500

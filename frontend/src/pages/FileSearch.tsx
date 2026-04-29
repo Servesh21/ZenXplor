@@ -1,17 +1,15 @@
-import { BACKEND_URL } from "../api";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { BACKEND_URL, AGENT_URL } from "../api";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { 
-  FaDownload, FaFolderOpen, FaSearch, FaSync, FaCloud, 
-  FaFilter, FaTimes, FaFileAlt, FaFilePdf, FaFileWord, 
-  FaFileImage, FaFolder, FaCheck, FaChevronDown,
-  FaStar, FaSortAmountDown,
-  FaRegStar, FaDesktop
+import {
+  FaSync,
+  FaFileAlt, FaFilePdf, FaFileWord,
+  FaFileImage, FaFolder, FaCloud,
+  FaRegStar, FaStar, FaTimes,
 } from "react-icons/fa";
-import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-
-const AGENT_URL = "https://127.0.0.1:7832";
+import DashboardLayout from "../components/DashboardLayout";
+import AgentDownloadModal from "../components/AgentDownloadModal";
 
 interface FileItem {
   id: number;
@@ -22,14 +20,6 @@ interface FileItem {
   is_favorite: boolean;
 }
 
-// const getFileExtension = (name: string): string => {
-//   const lastDotIndex = name.lastIndexOf(".");
-//   if (lastDotIndex <= 0 || lastDotIndex === name.length - 1) {
-//     return "unknown";
-//   }
-//   return name.slice(lastDotIndex + 1).toLowerCase();
-// };
-
 /** Stable numeric ID derived from a file path (for agent results). */
 const pathToId = (fp: string): number => {
   let h = 0x811c9dc5;
@@ -37,27 +27,21 @@ const pathToId = (fp: string): number => {
     h ^= fp.charCodeAt(i);
     h = Math.imul(h, 0x01000193) >>> 0;
   }
-  // Negative range so it never clashes with positive DB ids
   return -(h % 2_000_000_000 || 1);
 };
 
 const FileSearch: React.FC = () => {
-  const navigate = useNavigate();
-
   const [query, setQuery] = useState("");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [indexingStatus, setIndexingStatus] = useState("not_started");
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [serviceFilter, setServiceFilter] = useState<string>("");
   const [fileTypeFilter, setFileTypeFilter] = useState<string>("");
-  const [showFilters, setShowFilters] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<number | null>(null);
+
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
-  
-  const [sortOrder, setSortOrder] = useState<"name" | "type" | "storage">("name");
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
@@ -65,46 +49,12 @@ const FileSearch: React.FC = () => {
   const [agentRunning, setAgentRunning] = useState(false);
   const [agentScanning, setAgentScanning] = useState(false);
 
-  const observer = useRef<IntersectionObserver | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const fileListRef = useRef<HTMLDivElement>(null);
 
-  const LIMIT = 10;
-  useEffect(() => {
-    // Reset results when search criteria changes
-    setFiles([]);
-    setOffset(0);
-    setHasMore(true);
-  
-    const delaySearch = setTimeout(() => {
-      if (query.trim() || serviceFilter || fileTypeFilter) {
-        fetchFiles(query, 0);
-      }
-    }, 500);
-  
-    return () => clearTimeout(delaySearch);
-  }, [query, serviceFilter, fileTypeFilter]);
-  
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const response = await axios.get(`${BACKEND_URL}/auth/check-auth`, { 
-          withCredentials: true 
-        });
-        
-        // If no user is logged in or auth check fails, redirect to login
-        if (!response.data.authenticated) {
-          navigate("/login");
-        }
-      } catch (error) {
-        console.error("Authentication check failed:", error);
-        navigate("/login");
-      }
-    };
-    
-    checkAuth();
-  }, [navigate]);
+  const LIMIT = 12; // 3x4 grid fits better
 
-  // Poll agent health every 10 s so the indicator stays current
+  // Poll agent health every 10s
   useEffect(() => {
     const checkAgent = async () => {
       try {
@@ -120,24 +70,26 @@ const FileSearch: React.FC = () => {
   }, []);
 
   // Fetch search results with filters
-  const fetchFiles = async (newQuery = query, newOffset = offset) => {
-    if (loading || (!newQuery.trim() && !serviceFilter && !fileTypeFilter) || !hasMore) return;
+  const fetchFiles = async (newQuery = query, page = 1) => {
     setLoading(true);
+    const offset = (page - 1) * LIMIT;
     try {
       const response = await axios.get(`${BACKEND_URL}/search/search-files`, {
-        params: { q: newQuery, offset: newOffset, limit: LIMIT, service: serviceFilter, filetype: fileTypeFilter },
+        params: { q: newQuery, offset, limit: LIMIT, service: serviceFilter, filetype: fileTypeFilter },
         withCredentials: true,
       });
-      console.log("Search response:", response.data);
+      
       let newData: FileItem[] = response.data.results;
+      const totalResults = response.data.total_results || 0;
+      setTotalPages(Math.ceil(totalResults / LIMIT) || 1);
 
-      // On fresh search, augment with agent-indexed local results
-      if (newOffset === 0 && agentRunning && newQuery.trim() &&
-          (!serviceFilter || serviceFilter === "local")) {
+      // Augment with agent-indexed local results ONLY on page 1 for now (to avoid complexity of merging distributed paginated sets)
+      if (page === 1 && agentRunning && newQuery.trim() &&
+        (!serviceFilter || serviceFilter === "local")) {
         try {
           const agentRes = await axios.get(`${AGENT_URL}/search`, {
-            params: { q: newQuery, limit: 50, filetype: fileTypeFilter || undefined },
-            timeout: 3000,
+            params: { q: newQuery, limit: 10, filetype: fileTypeFilter || undefined },
+            timeout: 2000,
           });
           const seenPaths = new Set(newData.map((f) => f.filepath));
           const agentItems: FileItem[] = (agentRes.data.results || [])
@@ -156,54 +108,42 @@ const FileSearch: React.FC = () => {
         }
       }
 
-      setFiles((prev) => (newOffset === 0 ? newData : [...prev, ...newData]));
-      setHasMore(response.data.has_more);
-      setOffset(newOffset + LIMIT);
+      setFiles(newData);
+      setCurrentPage(page);
     } catch (error) {
       console.error("Search failed:", error);
-      if (newOffset === 0) setFiles([]);
+      setFiles([]);
       showToastNotification("Search failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Debounce search input
+  // Single debounced search effect
   useEffect(() => {
     const delaySearch = setTimeout(() => {
-      if (query.trim() || serviceFilter || fileTypeFilter) {
-        setOffset(0);
-        setHasMore(true);
-        fetchFiles(query, 0);
-      }
+      fetchFiles(query, 1);
     }, 500);
+
     return () => clearTimeout(delaySearch);
   }, [query, serviceFilter, fileTypeFilter]);
 
-  // Infinite scrolling observer
-  const fileListRef = useRef<HTMLDivElement>(null);
-  const lastFileRef = useCallback(
-    (node: HTMLLIElement | HTMLDivElement | null) => {
-      if (loading) return;
-      if (observer.current) observer.current.disconnect();
-      
-      observer.current = new IntersectionObserver(
-        (entries) => {
-          if (entries[0].isIntersecting && hasMore) {
-            console.log("Last element is visible, loading more files...");
-            fetchFiles(query, offset);
-          }
-        },
-        { threshold: 0.5 }
-      );
-      
-      if (node) observer.current.observe(node);
-    },
-    [loading, hasMore, query, offset]
-  );
+  const handleFileAccess = async (file: any) => {
+    if (!file) return;
+    try {
+      await axios.post(`${BACKEND_URL}/search/file/access`, {
+        id: file.id,
+        filepath: file.filepath,
+        cloud_file_id: file.cloud_file_id
+      }, { withCredentials: true });
+    } catch (error) {
+      console.error("Failed to log file access", error);
+    }
+  };
 
-  const handleDownload = async (filepath: string, filename: string) => {
-    // Real local paths (e.g. C:\Users\...) — route through the Desktop Agent
+  const handleDownload = async (file: any) => {
+    handleFileAccess(file);
+    const { filepath, filename } = file;
     if (!filepath.startsWith("upload://") && !filepath.startsWith("http")) {
       if (!agentRunning) {
         showToastNotification("ZenXplor Desktop Agent is not running. Cannot download local files.");
@@ -225,7 +165,6 @@ const FileSearch: React.FC = () => {
       return;
     }
 
-    // Uploaded / cloud files — backend download
     try {
       const response = await axios.get(`${BACKEND_URL}/search/download-file?filepath=${encodeURIComponent(filepath)}`, {
         withCredentials: true,
@@ -246,8 +185,9 @@ const FileSearch: React.FC = () => {
     }
   };
 
-  const handleOpenFileLocation = async (filepath: string) => {
-    // Real local paths — route through the Desktop Agent
+  const handleOpenFileLocation = async (file: any) => {
+    handleFileAccess(file);
+    const { filepath } = file;
     if (!filepath.startsWith("upload://") && !filepath.startsWith("http")) {
       if (!agentRunning) {
         showToastNotification("ZenXplor Desktop Agent is not running. Cannot open local files.");
@@ -264,7 +204,7 @@ const FileSearch: React.FC = () => {
     }
 
     try {
-      await axios.post("${BACKEND_URL}/search/open-file", { filepath }, { withCredentials: true });
+      await axios.post(`${BACKEND_URL}/search/open-file`, { filepath }, { withCredentials: true });
       showToastNotification("Opening file location");
     } catch {
       showToastNotification("Opening file location");
@@ -280,8 +220,6 @@ const FileSearch: React.FC = () => {
     setIndexingStatus("indexing");
     setAgentScanning(true);
     try {
-      // Step 1: Re-fetch a fresh token from the backend and push it to the agent.
-      // This is essential — without a valid token the agent silently skips all sync.
       try {
         const authRes = await fetch(`${BACKEND_URL}/auth/check-auth`, { credentials: "include" });
         if (authRes.ok) {
@@ -295,11 +233,9 @@ const FileSearch: React.FC = () => {
           }
         }
       } catch {
-        // Non-fatal: agent may already have a valid token; continue with scan.
         console.warn("Could not refresh agent token before scan — proceeding with existing token.");
       }
 
-      // Step 2: Trigger the scan.
       const res = await axios.post(`${AGENT_URL}/scan`, {}, { timeout: 5000 });
       if (res.data.scanning) {
         showToastNotification("Scan started — the agent is indexing your files in the background.");
@@ -317,7 +253,6 @@ const FileSearch: React.FC = () => {
     }
   };
 
-
   const resetFilters = () => {
     setServiceFilter("");
     setFileTypeFilter("");
@@ -332,9 +267,9 @@ const FileSearch: React.FC = () => {
   const getFileIcon = (filePath: string = "", storageType: string) => {
     if (storageType === "google_drive") return <FaCloud className="text-blue-500" size={24} />;
     if (storageType === "dropbox") return <FaCloud className="text-indigo-500" size={24} />;
-    
-    const extension = filePath.split('.').pop()?.toLowerCase() || "";
-    
+
+    const extension = filePath.split(".").pop()?.toLowerCase() || "";
+
     switch (extension) {
       case "pdf":
         return <FaFilePdf className="text-red-500" size={24} />;
@@ -349,19 +284,17 @@ const FileSearch: React.FC = () => {
       case "folder":
         return <FaFolder className="text-yellow-500" size={24} />;
       default:
-        return <FaFileAlt className="text-gray-500" size={24} />;
+        return <FaFileAlt className="text-slate-500" size={24} />;
     }
   };
 
-
-
   const toggleFavorite = async (filepath: string) => {
     try {
-      
       const res = await axios.post(
-        `${BACKEND_URL}/search/${encodeURIComponent(filepath)}/favorite`,{}, { withCredentials: true }
+        `${BACKEND_URL}/search/${encodeURIComponent(filepath)}/favorite`,
+        {},
+        { withCredentials: true }
       );
-      console.log("Favorite status updated", res.data);
       const updatedFile = res.data.file;
       setFiles((prevFiles) =>
         prevFiles.map((file) =>
@@ -370,715 +303,317 @@ const FileSearch: React.FC = () => {
             : file
         )
       );
-
     } catch (error) {
       console.error("Error updating favorite status", error);
     }
   };
-  
-
-
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Ctrl+F to focus search
-    if (e.ctrlKey && e.key === 'f') {
+    if (e.ctrlKey && e.key === "f") {
       e.preventDefault();
       searchInputRef.current?.focus();
     }
   };
 
-  const getSortedFiles = () => {
-    if (!files.length) return [];
-    
-    return [...files].sort((a, b) => {
-      if (sortOrder === "name") {
-        return a.filename.localeCompare(b.filename);
-      } else if (sortOrder === "type") {
-        const typeA = a.filepath?.split('.').pop() || "";
-        const typeB = b.filepath?.split('.').pop() || "";
-        return typeA.localeCompare(typeB);
-      } else {
-        return a.storage_type.localeCompare(b.storage_type);
-      }
-    });
-  };
-
-  const sortedFiles = getSortedFiles();
-
   return (
-    <div 
-      className="min-h-screen transition-colors duration-300 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800"
-      onKeyDown={handleKeyDown}
-    >
-      <div className="max-w-6xl mx-auto p-4">
-        <div className="rounded-2xl shadow-2xl overflow-hidden bg-white dark:bg-gray-800 transition-all duration-300">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 px-8 py-6 flex justify-between items-center">
-            <h2 className="text-3xl font-bold text-white flex items-center">
-              <FaSearch className="mr-3" />
-              
+    <DashboardLayout agentRunning={agentRunning}>
+      <AgentDownloadModal agentRunning={agentRunning} />
+      <div onKeyDown={handleKeyDown}>
+        {/* Sticky Search Header */}
+        <section className="sticky top-14 z-[30] w-full pt-10 pb-6 px-8 flex flex-col items-center backdrop-blur-md bg-background/80 border-b border-white/5 shadow-xl transition-all duration-300">
+          <div className="max-w-4xl w-full flex flex-col items-center">
+            <h2 className="text-2xl font-bold tracking-tight mb-6 text-center text-white/90">
+              Architect your workspace.
             </h2>
-            
-            <div className="flex items-center space-x-4">
 
-              
-              <motion.div className="flex gap-2">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setViewMode("list")}
-                  className={`p-2 rounded-lg transition-all ${
-                    viewMode === "list" 
-                      ? "bg-white text-indigo-700" 
-                      : "bg-white/20 text-white hover:bg-white/30"
-                  }`}
-                  aria-label="List view"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                  </svg>
-                </motion.button>
-                
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setViewMode("grid")}
-                  className={`p-2 rounded-lg transition-all ${
-                    viewMode === "grid" 
-                      ? "bg-white text-indigo-700" 
-                      : "bg-white/20 text-white hover:bg-white/30"
-                  }`}
-                  aria-label="Grid view"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                  </svg>
-                </motion.button>
-              </motion.div>
-
-              {/* Agent status indicator */}
-              <div
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 text-white text-sm"
-                title={agentRunning ? "ZenXplor Desktop Agent is running" : "ZenXplor Desktop Agent not detected"}
-              >
-                <FaDesktop size={14} />
-                <span className={`w-2 h-2 rounded-full ${agentRunning ? "bg-green-400" : "bg-red-400"}`} />
-                <span className="hidden sm:inline">{agentRunning ? "Agent" : "No Agent"}</span>
-              </div>
-              
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleAgentScan}
-                disabled={indexingStatus === "indexing" || agentScanning}
-                title={agentRunning ? "Trigger a full filesystem scan via the Desktop Agent" : "Install the ZenXplor Desktop Agent to scan local files"}
-                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-sm font-medium shadow-lg ${
-                  indexingStatus === "indexing" 
-                    ? "bg-indigo-700 text-indigo-200" 
-                    : indexingStatus === "completed" 
-                      ? "bg-green-500 text-white" 
-                      : indexingStatus === "failed" 
-                        ? "bg-red-500 text-white" 
-                        : agentRunning
-                          ? "bg-white text-indigo-700 hover:bg-indigo-50"
-                          : "bg-white/30 text-white cursor-not-allowed"
-                }`}
-              >
-                <FaSync className={indexingStatus === "indexing" ? "animate-spin" : ""} size={14} />
-                {indexingStatus === "indexing" 
-                  ? "Scanning..." 
-                  : indexingStatus === "completed" 
-                    ? <><FaCheck className="mr-1" /> Scan Started</> 
-                    : indexingStatus === "failed" 
-                      ? "Failed" 
-                      : "Scan Files"}
-              </motion.button>
-            </div>
-          </div>
-
-          {/* Search and Filters */}
-          <div className="px-8 py-6 border-b border-gray-200 dark:border-gray-700">
             {/* Search Bar */}
-            <div className="relative">
-              <motion.div 
-                initial={{ y: -10, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.3 }}
-                className={`flex border-2 ${searchFocused ? "border-blue-500 shadow-lg" : "border-gray-300 dark:border-gray-600"} rounded-xl overflow-hidden transition-all duration-300`}
+            <div className="w-full relative group">
+              <div className="absolute inset-0 bg-primary/5 blur-2xl rounded-full -z-10 group-focus-within:bg-primary/20 transition-all duration-500"></div>
+              <div
+                className={`glass-panel w-full rounded-2xl border ${
+                  searchFocused
+                    ? "border-primary/50 shadow-[0_0_30px_rgba(196,192,255,0.15)]"
+                    : "border-outline-variant/15"
+                } flex items-center px-6 py-4 shadow-2xl transition-all duration-300`}
               >
-                <div className="flex items-center pl-4 text-gray-400 dark:text-gray-500">
-                  <FaSearch size={18} />
-                </div>
+                <span className="material-symbols-outlined text-primary text-2xl mr-4 drop-shadow-[0_0_8px_rgba(196,192,255,0.5)]">
+                  search
+                </span>
                 <input
                   ref={searchInputRef}
+                  className="bg-transparent border-none focus:ring-0 text-xl w-full text-white placeholder:text-on-surface-variant/40 outline-none"
+                  placeholder="Search files, tasks, or integrations..."
                   type="text"
-                  placeholder="Find files across all your storage... "
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onFocus={() => setSearchFocused(true)}
                   onBlur={() => setSearchFocused(false)}
-                  className="w-full py-4 px-3 bg-transparent text-gray-900 dark:text-white focus:outline-none"
                 />
                 {query && (
                   <button
                     onClick={() => {
-                      setQuery("")
-                      setOffset(0);
-                      setFiles([]);
+                      setQuery("");
+                      fetchFiles("", 1);
                     }}
-                    className="px-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    className="px-3 text-slate-500 hover:text-white transition-colors"
                   >
                     <FaTimes size={18} />
                   </button>
                 )}
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => fetchFiles(query, 0)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 flex items-center transition-all font-medium"
-                >
-                  Search
-                </motion.button>
-              </motion.div>
+                <div className="flex gap-2 ml-4 opacity-50 hidden sm:flex">
+                  <kbd className="px-2 py-1 rounded bg-surface-container-highest text-[10px] font-mono text-on-surface-variant border border-outline-variant/20">
+                    CMD
+                  </kbd>
+                  <kbd className="px-2 py-1 rounded bg-surface-container-highest text-[10px] font-mono text-on-surface-variant border border-outline-variant/20">
+                    K
+                  </kbd>
+                </div>
+              </div>
             </div>
-            
+
             {/* Filters */}
-            <div className="mt-4">
+            <div className="flex gap-3 mt-6 flex-wrap justify-center">
+              <span className="text-[11px] uppercase tracking-[1px] text-on-surface-variant/60 self-center mr-2">
+                Filter by
+              </span>
+              {[
+                { key: "pdf", label: "Documents" },
+                { key: "png", label: "Images" },
+                { key: "folder", label: "Folders" },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setFileTypeFilter(fileTypeFilter === key ? "" : key)}
+                  className={`px-4 py-1.5 rounded-full ${
+                    fileTypeFilter === key
+                      ? "bg-primary/20 border-primary text-primary"
+                      : "bg-surface-container-high border-outline-variant/10"
+                  } text-white text-xs border hover:border-primary/50 transition-colors shadow-sm`}
+                >
+                  {label}
+                </button>
+              ))}
+              {(fileTypeFilter || serviceFilter) && (
+                <button onClick={resetFilters} className="text-red-400 text-xs px-2 hover:underline ml-2">
+                  Clear filters
+                </button>
+              )}
+
+              {/* Agent Scan Trigger in filters area to save space */}
               <button
-                onClick={() => setShowFilters(!showFilters)}
-                className="flex items-center text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-all text-sm font-medium"
+                onClick={handleAgentScan}
+                disabled={indexingStatus === "indexing" || agentScanning}
+                className="ml-4 flex items-center gap-2 py-1.5 px-4 rounded-full bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold uppercase tracking-wider hover:bg-primary/20 transition-all active:scale-95 disabled:opacity-50"
               >
-                <FaFilter className="mr-2" size={12} />
-                {showFilters ? "Hide Filters" : "Show Filters"}
-                <FaChevronDown className={`ml-1 transform transition-transform ${showFilters ? "rotate-180" : ""}`} size={12} />
+                <FaSync className={indexingStatus === "indexing" ? "animate-spin" : ""} size={12} />
+                {indexingStatus === "indexing" ? "Scanning..." : "Scan Local"}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Results */}
+        <section className="max-w-6xl mx-auto px-8 pt-12 pb-20">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h3 className="text-lg font-semibold tracking-tight text-white">
+                {query ? (files.length > 0 ? `Showing results for "${query}"` : "Search Results") : "Recent Activity"}
+              </h3>
+              <p className="text-xs text-on-surface-variant/60 font-mono mt-1 w-full truncate">
+                /workspace/results/page/{currentPage}
+              </p>
+            </div>
+            {loading && (
+              <div className="h-4 w-4 border-t-2 border-primary rounded-full animate-spin shadow-[0_0_8px_rgba(196,192,255,0.8)]"></div>
+            )}
+          </div>
+
+          {files.length === 0 && !loading && (query || fileTypeFilter || serviceFilter) && (
+            <div className="text-center py-20 opacity-50 bg-surface-container-low rounded-2xl border border-white/5 shadow-inner">
+              <span className="material-symbols-outlined text-4xl mb-4 text-primary">search_off</span>
+              <p className="text-lg">No results found for your query.</p>
+            </div>
+          )}
+
+          <div
+            ref={fileListRef}
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pr-2"
+          >
+            {files.map((file) => {
+              const fileKey = file.filepath || file.cloud_file_id || String(file.id);
+              const isSelected = selectedFilePath === fileKey;
+
+              return (
+                <div
+                  key={fileKey}
+                  onClick={() => setSelectedFilePath(isSelected ? null : fileKey)}
+                  className={`bg-surface-container-low hover:bg-surface-container-high border ${
+                    isSelected
+                      ? "border-primary shadow-[0_0_15px_rgba(196,192,255,0.15)] bg-surface-container-highest"
+                      : "border-outline-variant/15"
+                  } p-5 rounded-xl transition-all duration-300 group cursor-pointer flex flex-col min-h-[180px] h-auto relative overflow-hidden`}
+                >
+                  {isSelected && (
+                    <div className="absolute top-0 left-0 w-1 h-full bg-primary shadow-[0_0_10px_rgba(196,192,255,0.8)]"></div>
+                  )}
+
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="w-10 h-10 rounded-lg bg-surface-container-highest flex items-center justify-center text-primary text-xl border border-white/5 shadow-sm group-hover:scale-110 transition-transform duration-300">
+                      {getFileIcon(file.filepath, file.storage_type)}
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-surface-container-lowest px-2 py-1 rounded border border-outline-variant/10 shadow-inner">
+                      <span className="material-symbols-outlined text-[14px] text-blue-400">
+                        {file.storage_type === "local" ? "desktop_windows" : "cloud"}
+                      </span>
+                      <span className="text-[10px] font-medium text-slate-300 capitalize">
+                        {file.storage_type.replace("_", " ")}
+                      </span>
+                    </div>
+                  </div>
+
+                  <h4 className="text-base font-bold text-white mb-1 group-hover:text-primary transition-colors drop-shadow-sm">
+                    {file.filename}
+                  </h4>
+                  <p
+                    className="text-[11px] font-mono text-on-surface-variant/80 mb-4 truncate w-full"
+                    title={file.filepath}
+                  >
+                    {file.filepath || "Cloud storage"}
+                  </p>
+
+                  <div className="mt-auto flex items-center justify-between pt-4 border-t border-outline-variant/5">
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(file.filepath || "");
+                        }}
+                        className={`hover:scale-125 transition-transform duration-300 ${
+                          file.is_favorite
+                            ? "text-yellow-400 drop-shadow-[0_0_5px_rgba(250,204,21,0.5)]"
+                            : "text-on-surface-variant/40"
+                        }`}
+                      >
+                        {file.is_favorite ? <FaStar size={14} /> : <FaRegStar size={14} />}
+                      </button>
+                    </div>
+
+                    <div className="flex gap-3 opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0 duration-300">
+                      {file.storage_type === "local" && (
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownload(file);
+                            }}
+                            className="p-1.5 rounded bg-primary/10 text-primary hover:bg-primary hover:text-white transition-colors border border-primary/20"
+                            title="Download"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">download</span>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenFileLocation(file);
+                            }}
+                            className="p-1.5 rounded bg-primary/10 text-primary hover:bg-primary hover:text-white transition-colors border border-primary/20"
+                            title="Open Location"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">folder_open</span>
+                          </button>
+                        </>
+                      )}
+                      {(file.storage_type === "google_drive" || file.storage_type === "dropbox") && (
+                        <a
+                          href={
+                            file.storage_type === "google_drive"
+                              ? `https://drive.google.com/open?id=${file.cloud_file_id}`
+                              : `https://www.dropbox.com/home/${file.cloud_file_id}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 rounded bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white transition-colors border border-indigo-500/20"
+                          title="Open Cloud Link"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleFileAccess(file);
+                          }}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="mt-12 flex items-center justify-center gap-2">
+              <button
+                disabled={currentPage === 1 || loading}
+                onClick={() => fetchFiles(query, currentPage - 1)}
+                className="p-2 rounded-lg bg-surface-container-low border border-outline-variant/10 text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-surface-container-high transition-colors"
+              >
+                <span className="material-symbols-outlined">chevron_left</span>
               </button>
               
-              {/* Active Filters Display */}
-              <AnimatePresence>
-                {(serviceFilter || fileTypeFilter) && (
-                  <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="mt-3 flex flex-wrap gap-2"
-                  >
-                    {serviceFilter && (
-                      <motion.span 
-                        initial={{ scale: 0.8, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                      >
-                        Service: {serviceFilter}
-                        <button onClick={() => setServiceFilter("")} className="ml-1 text-blue-500 hover:text-blue-700">
-                          <FaTimes size={10} />
-                        </button>
-                      </motion.span>
-                    )}
-                    
-                    {fileTypeFilter && (
-                      <motion.span 
-                        initial={{ scale: 0.8, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
-                      >
-                        Type: {fileTypeFilter}
-                        <button onClick={() => setFileTypeFilter("")} className="ml-1 text-purple-500 hover:text-purple-700">
-                          <FaTimes size={10} />
-                        </button>
-                      </motion.span>
-                    )}
-                    
-                    <motion.button
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={resetFilters}
-                      className="text-red-500 hover:text-red-700 flex items-center px-3 py-1 rounded-full text-xs bg-red-50 dark:bg-red-900/30"
+              <div className="flex gap-1">
+                {[...Array(totalPages)].map((_, i) => {
+                  const pageNum = i + 1;
+                  // Show limited pages if many
+                  if (totalPages > 7 && Math.abs(pageNum - currentPage) > 2 && pageNum !== 1 && pageNum !== totalPages) {
+                    if (Math.abs(pageNum - currentPage) === 3) return <span key={i} className="text-slate-600 px-1">...</span>;
+                    return null;
+                  }
+                  
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => fetchFiles(query, pageNum)}
+                      className={`w-10 h-10 rounded-lg text-sm font-medium transition-all ${
+                        currentPage === pageNum
+                          ? "bg-primary text-[#1a1b23] shadow-[0_0_15px_rgba(196,192,255,0.4)]"
+                          : "bg-surface-container-low border border-outline-variant/10 text-on-surface-variant hover:bg-surface-container-high"
+                      }`}
                     >
-                      Clear All
-                    </motion.button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              
-              {/* Filter Panel */}
-              <AnimatePresence>
-                {showFilters && (
-                  <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4"
-                  >
-                    <div className="p-4 bg-gray-50 dark:bg-gray-700/40 rounded-xl border border-gray-200 dark:border-gray-600">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Storage Service</label>
-                      <select
-                        value={serviceFilter}
-                        onChange={(e) => setServiceFilter(e.target.value)}
-                        className="w-full border-0 rounded-lg p-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      >
-                        <option value="">All Services</option>
-                        <option value="local">Local Storage (Agent)</option>
-                        <option value="local_upload">Uploaded &amp; Indexed</option>
-                        <option value="google_drive">Google Drive</option>
-                        <option value="dropbox">Dropbox</option>
-                        <option value="google_photos">Google Photos</option>
-                        <option value="gmail">Gmail Attachments</option>
-                      </select>
-                    </div>
-                    
-                    <div className="p-4 bg-gray-50 dark:bg-gray-700/40 rounded-xl border border-gray-200 dark:border-gray-600">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">File Type</label>
-                      <select
-                        value={fileTypeFilter}
-                        onChange={(e) => setFileTypeFilter(e.target.value)}
-                        className="w-full border-0 rounded-lg p-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      >
-                        <option value="">All File Types</option>
-                        <option value="pdf">PDF Documents</option>
-                        <option value="docx">Word Documents</option>
-                        <option value="txt">Text Files</option>
-                        <option value="jpg">JPG Images</option>
-                        <option value="png">PNG Images</option>
-                        <option value="folder">Folders</option>
-                      </select>
-                    </div>
-                    
-                    <div className="p-4 bg-gray-50 dark:bg-gray-700/40 rounded-xl border border-gray-200 dark:border-gray-600">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Sort By</label>
-                      <select
-                        value={sortOrder}
-                        onChange={(e) => setSortOrder(e.target.value as "name" | "type" | "storage")}
-                        className="w-full border-0 rounded-lg p-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      >
-                        <option value="name">Filename (A-Z)</option>
-                        <option value="type">File Type</option>
-                        <option value="storage">Storage Service</option>
-                      </select>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                disabled={currentPage === totalPages || loading}
+                onClick={() => fetchFiles(query, currentPage + 1)}
+                className="p-2 rounded-lg bg-surface-container-low border border-outline-variant/10 text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-surface-container-high transition-colors"
+              >
+                <span className="material-symbols-outlined">chevron_right</span>
+              </button>
             </div>
-          </div>
-          
-          {/* Search Results */}
-          <div className="px-8 py-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold flex items-center text-gray-800 dark:text-gray-200">
-                {files.length > 0 ? `Found ${files.length} ${files.length === 1 ? 'file' : 'files'}` : 'Search Results'}
-                {loading && files.length === 0 && (
-                  <div className="ml-3 h-5 w-5 border-t-2 border-blue-500 rounded-full animate-spin"></div>
-                )}
-              </h3>
-              
-              {files.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                  </span>
-                  <button
-                    onClick={() => setSortOrder(prev => prev === "name" ? "type" : prev === "type" ? "storage" : "name")}
-                    className="p-2 rounded-full text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    title="Change sort order"
-                  >
-                    <FaSortAmountDown size={14} />
-                  </button>
-                </div>
-              )}
-            </div>
-            
-            {/* File List */}
-            <div
-              ref={fileListRef}
-              className="max-h-screen-sm overflow-y-auto rounded-xl transition-all"
+          )}
+        </section>
+
+        {/* Toast */}
+        <AnimatePresence>
+          {showToast && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="fixed bottom-4 right-4 bg-surface-container-high text-white border border-outline-variant/20 px-4 py-3 rounded-xl shadow-2xl z-[100] backdrop-blur-md"
             >
-              {sortedFiles.length > 0 ? (
-                viewMode === "list" ? (
-                  <ul className="space-y-2">
-{sortedFiles.map((file, index) => (
-  <motion.li
-    key={file.id}
-    ref={index === sortedFiles.length - 1 && hasMore ? lastFileRef : null}
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.3, delay: index * 0.05 }}
-    className={`rounded-xl bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-all overflow-hidden ${
-      selectedFile === file.id ? "ring-2 ring-blue-500" : ""
-    }`}
-    onClick={() => setSelectedFile(selectedFile === file.id ? null : file.id)}
-  >
-                        <div className="p-4">
-                          <div className="flex items-center gap-4">
-                            <div className="p-3 rounded-lg bg-gray-100 dark:bg-gray-700 flex-shrink-0">
-                              {getFileIcon(file.filepath, file.storage_type)}
-                            </div>
-                            
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center mb-1 gap-2">
-                                <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${
-                                  file.storage_type === "google_drive" 
-                                    ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300" 
-                                    : file.storage_type === "dropbox" 
-                                      ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300"
-                                      : "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
-                                }`}>
-                                  {file.storage_type}
-                                </span>
-                                
-                                {file.filepath && (
-                                  <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300 font-medium">
-                                    {file.filepath?.split('.').pop() || "file"}
-                                  </span>
-                                )}
-                              </div>
-                              
-                              <p className="font-semibold text-lg text-gray-900 dark:text-white truncate">
-                                {file.filename}
-                              </p>
-                              
-                              {file.filepath && (
-                                <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-1">
-                                  {file.filepath}
-                                </p>
-                              )}
-                            </div>
-                            
-                            <div className="flex-shrink-0 flex space-x-2">
-                            {file.storage_type === "local" &&(                          
-                                <motion.button
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (file.filepath) {
-                                    handleDownload(file.filepath, file.filename);
-                                  }
-                                }}
-                                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
-                                title="Download"
-                              >
-                                <FaDownload size={16} />
-                              </motion.button>) }
-
-                              
-                              {file.filepath && file.storage_type==="local" && (
-                                <motion.button
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenFileLocation(file.filepath!);
-                                  }}
-                                  className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
-                                  title="Open file location"
-                                >
-                                  <FaFolderOpen size={16} />
-                                </motion.button>
-                              )}
-
-
-                              {(file.storage_type === "google_drive" ||file.storage_type==="dropbox") && (
-                                <motion.a
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                  href={file.storage_type === "google_drive" 
-                                    ? `https://drive.google.com/open?id=${file.cloud_file_id}`
-                                    : `https://www.dropbox.com/home/${file.cloud_file_id}`
-                                  }
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
-                                  title="Open in cloud storage"
-                                >
-                                  <FaCloud size={16} />
-                                </motion.a>
-                                )}
-                              
-                              <motion.button
-  whileHover={{ scale: 1.1 }}
-  whileTap={{ scale: 0.9 }}
-  onClick={(e) => {
-    e.stopPropagation();
-    console.log("Toggle favorite for file ID:", file.filepath!);
-    toggleFavorite(file.filepath!);
-  }}
-  className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
-    file.is_favorite ? "text-yellow-400" : "text-gray-600 dark:text-gray-300"
-  }`}
-  title="Add to favorites"
->
-  {file.is_favorite?<FaStar size={16} />:<FaRegStar size={16} />}
-</motion.button>
-
-                            </div>
-                          </div>
-                          
-                          {/* Expanded actions when a file is selected */}
-                          <AnimatePresence>
-                            {selectedFile === file.id && (
-                              <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                exit={{ opacity: 0, height: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700"
-                              >
-                        <div className={`mt-4 overflow-hidden transition-all duration-300 ${
-                          selectedFile === file.id ? "max-h-60 opacity-100" : "max-h-0 opacity-0"
-                        }`}>
-                          <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">File Info</h4>
-                                <ul className="mt-2 space-y-1">
-                                  <li className="text-sm text-gray-700 dark:text-gray-300">
-                                    <span className="font-medium">Type:</span> {file.filepath?.split('.').pop()?.toUpperCase() || "Unknown"}
-                                  </li>
-                                  <li className="text-sm text-gray-700 dark:text-gray-300">
-                                    <span className="font-medium">Storage:</span> {file.storage_type}
-                                  </li>
-                                </ul>
-                              </div>
-                              
-                              <div>
-                                <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">Actions</h4>
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  {file.storage_type === "local" && (
-                                    <>
-                                      <button
-                                        onClick={() => handleDownload(file.filepath!,file.filename)}
-                                        className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-all"
-                                      >
-                                        Download
-                                      </button>
-                                      <button
-                                        onClick={() => handleOpenFileLocation(file.filepath!)}
-                                        className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-all"
-                                      >
-                                        Open Location
-                                      </button>
-                                    </>
-                                  )}
-                                  {(file.storage_type === "google_drive" || file.storage_type === "dropbox") && (
-                                    <a
-                                      href={file.storage_type === "google_drive" 
-                                        ? `https://drive.google.com/open?id=${file.cloud_file_id}`
-                                        : `https://www.dropbox.com/home/${file.cloud_file_id}`
-                                      }
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-all"
-                                    >
-                                      Open in {file.storage_type === "google_drive" ? "Google Drive" : "Dropbox"}
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      </motion.li>
-                    ))}
-                    {loading && files.length > 0 && (
-                    <div className="flex justify-center py-6 mt-4">
-                      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-                      <span className="ml-2 text-gray-600 dark:text-gray-300">Loading more...</span>
-                    </div>
-                  )}
-                  </ul>
-
-                ) : (
-                  // Grid View
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-{sortedFiles.map((file, index) => (
-  <motion.div
-    key={file.id}
-    ref={index === sortedFiles.length - 1 && hasMore ? lastFileRef : null}
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.3, delay: index * 0.05 }}
-    className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden cursor-pointer h-full flex flex-col ${
-      selectedFile === file.id ? "ring-2 ring-blue-500" : ""
-    }`}
-    onClick={() => setSelectedFile(selectedFile === file.id ? null : file.id)}
-  >
-                        <div className="p-4 flex-1">
-                          <div className="flex justify-center items-center h-28 w-full bg-gray-50 dark:bg-gray-700 rounded-lg mb-3">
-                            {getFileIcon(file.filepath, file.storage_type)}
-                          </div>
-                          
-                          <div className="mt-2">
-                            <div className="flex items-center mb-2 gap-1 flex-wrap">
-                              <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${
-                                file.storage_type === "google_drive" 
-                                  ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300" 
-                                  : file.storage_type === "dropbox" 
-                                    ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300"
-                                    : "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
-                              }`}>
-                                {file.storage_type}
-                              </span>
-                              
-                              {file.filepath && (
-                                <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300 font-medium">
-                                  {file.filepath?.split('.').pop() || "file"}
-                                </span>
-                              )}
-                            </div>
-                            
-                            <p className="font-semibold text-gray-900 dark:text-white truncate">
-                              {file.filename}
-                            </p>
-                            
-                            {file.filepath && (
-                              <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">
-                                {file.filepath}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="border-t border-gray-100 dark:border-gray-700 p-3 flex justify-between mt-auto">
-                        <motion.button
-  whileHover={{ scale: 1.1 }}
-  whileTap={{ scale: 0.9 }}
-  onClick={(e) => {
-    e.stopPropagation();
-    console.log("Toggle favorite for file ID:", file.filepath!);
-    toggleFavorite(file.filepath!);
-  }}
-  className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
-    file.is_favorite ? "text-yellow-400" : "text-gray-600 dark:text-gray-300"
-  }`}
-  title="Add to favorites"
->
-  {file.is_favorite?<FaStar size={14} />:<FaRegStar size={14} />}
-</motion.button>
-
-                          
-                          {file.filepath && file.storage_type==="local" && (
-                                <motion.button
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenFileLocation(file.filepath!);
-                                  }}
-                                  className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
-                                  title="Open file location"
-                                >
-                                  <FaFolderOpen size={14} />
-                                </motion.button>
-                              )}
-
-
-                              {(file.storage_type === "google_drive" ||file.storage_type==="dropbox") && (
-                                <motion.a
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                  href={file.storage_type === "google_drive" 
-                                    ? `https://drive.google.com/open?id=${file.cloud_file_id}`
-                                    : `https://www.dropbox.com/home/${file.cloud_file_id}`
-                                  }
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
-                                  title="Open in cloud storage"
-                                >
-                                  <FaCloud size={14} />
-                                </motion.a>
-                                )}
-                          
-                          {file.storage_type === "local" &&(                          
-                                <motion.button
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (file.filepath) {
-                                    handleDownload(file.filepath, file.filename);
-                                  }
-                                }}
-                                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
-                                title="Download"
-                              >
-                                <FaDownload size={14} />
-                              </motion.button>) }
-                          
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                )
-              ) : (
-                <div className="text-center py-12">
-                  {loading ? (
-                    <div className="flex justify-center items-center">
-                      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-                    </div>
-                  ) : query.trim() || serviceFilter || fileTypeFilter ? (
-                    <>
-                      <div className="text-gray-400 dark:text-gray-500 mb-3">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                      <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-300">No files found</h3>
-                      <p className="text-gray-500 dark:text-gray-400 mt-2 max-w-md mx-auto">
-                        We couldn't find any files matching your search criteria. Try adjusting your search or filters.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-gray-400 dark:text-gray-500 mb-3">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                      </div>
-                      <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Start searching</h3>
-                      <p className="text-gray-500 dark:text-gray-400 mt-2 max-w-md mx-auto">
-                        Enter a search term above to find files across all your connected storage services.
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-              
-              {/* Loading more indicator */}
-              {loading && files.length > 0 && (
-                <div className="flex justify-center py-4">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+              <div className="flex items-center">
+                <span className="material-symbols-outlined mr-2 text-primary">check_circle</span>
+                <p className="text-sm font-medium tracking-wide">{toastMessage}</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-      
-      {/* Toast Notification */}
-      <AnimatePresence>
-        {showToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="fixed bottom-4 right-4 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-4 py-3 rounded-lg shadow-lg z-50"
-          >
-            <div className="flex items-center">
-              <FaCheck className="mr-2 text-green-400" />
-              <p>{toastMessage}</p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    </DashboardLayout>
   );
 };
 

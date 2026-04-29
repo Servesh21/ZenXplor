@@ -87,7 +87,7 @@ def signup():
         httponly=True, 
         samesite="None" if is_prod else "Lax", 
         secure=is_prod,
-        max_age=7 * 24 * 60 * 60  # 7 days in seconds
+        max_age=30 * 24 * 60 * 60  # 30 days in seconds
     )
     return response
  
@@ -118,7 +118,7 @@ def login():
         httponly=True, 
         samesite="None" if is_prod else "Lax", 
         secure=is_prod,
-        max_age=7 * 24 * 60 * 60 
+        max_age=30 * 24 * 60 * 60 
     )
     
     
@@ -223,7 +223,7 @@ def authorize_google():
 
     access_token = create_access_token(identity=str(user.id))
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
-    response = make_response(redirect(f"{frontend_url}/storage-overview"))
+    response = make_response(redirect(f"{frontend_url}/file-search"))
     is_prod = os.getenv("FLASK_ENV", "development") == "production"
     response.set_cookie(
         "access_token_cookie", 
@@ -231,7 +231,7 @@ def authorize_google():
         httponly=True, 
         samesite="None" if is_prod else "Lax", 
         secure=is_prod,
-        max_age=7 * 24 * 60 * 60
+        max_age=30 * 24 * 60 * 60
     )
     return response
 
@@ -264,7 +264,7 @@ def authorize_github():
 
     access_token = create_access_token(identity=str(user.id))
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
-    response = make_response(redirect(f"{frontend_url}/storage-overview"))
+    response = make_response(redirect(f"{frontend_url}/file-search"))
     is_prod = os.getenv("FLASK_ENV", "development") == "production"
     response.set_cookie(
         "access_token_cookie", 
@@ -272,7 +272,7 @@ def authorize_github():
         httponly=True, 
         samesite="None" if is_prod else "Lax", 
         secure=is_prod,
-        max_age=7 * 24 * 60 * 60
+        max_age=30 * 24 * 60 * 60
     )
     return response
 

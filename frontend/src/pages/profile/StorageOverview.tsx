@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
+import { BACKEND_URL } from "../../api";
+import DashboardLayout from "../../components/DashboardLayout";
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const DROPBOX_CLIENT_ID = import.meta.env.VITE_DROPBOX_CLIENT_ID;
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 interface Account {
   id: number;
@@ -14,58 +15,111 @@ interface Account {
 }
 
 const CloudStorageAccounts = () => {
-  const [showAddModal, setShowAddModal] = useState(false);
   const [connectedAccounts, setConnectedAccounts] = useState<Account[]>([]);
   const [syncingAccount, setSyncingAccount] = useState<number | null>(null);
-  const [userId, setUserId] = useState<number | null>(null);
+  const [toastMessage, setToastMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-
-    const fetchUserIdAndAccounts = async () => {
-      try {
-        const userResponse = await axios.get(`${BACKEND_URL}/auth/profile`, { withCredentials: true });
-        const id = userResponse.data.id;
-
-        if (!id) {
-          console.error("User ID not found");
-          return;
-        }
-
-        setUserId(id);
-        userId
-        const accountsResponse = await axios.get(`${BACKEND_URL}/cloud-accounts/${id}`, {
-          withCredentials: true,
-        });
-        setConnectedAccounts(accountsResponse.data);
-      } catch (error) {
-        console.error("Error fetching user ID or accounts:", error);
-      }
-    };
-
-    fetchUserIdAndAccounts();
-  }, []);
-
-  const handleAddGoogleDrive = () => {
-    const REDIRECT_URI = `${BACKEND_URL}/cloud-storage/callback`;
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-      `client_id=${encodeURIComponent(CLIENT_ID)}` +
-      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-      `&response_type=code` +
-      `&scope=${encodeURIComponent("https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/photoslibrary.readonly")}` +
-      `&access_type=offline` +
-      `&prompt=consent`;
-
-    window.location.href = authUrl;
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(""), 3500);
   };
 
-  const handleAddDropbox = () => {
-    const DROPBOX_REDIRECT_URI = `${BACKEND_URL}/cloud-storage/dropbox/callback`;
-    const authUrl = `https://www.dropbox.com/oauth2/authorize?` +
-      `client_id=${encodeURIComponent(DROPBOX_CLIENT_ID)}` +
-      `&response_type=code` +
-      `&redirect_uri=${encodeURIComponent(DROPBOX_REDIRECT_URI)}`;
+  const fetchAccounts = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const userResponse = await axios.get(`${BACKEND_URL}/auth/profile`, { withCredentials: true });
+      const id = userResponse.data.id;
+      if (!id) {
+        setIsLoading(false);
+        return;
+      }
 
-    window.location.href = authUrl;
+      const accountsResponse = await axios.get(`${BACKEND_URL}/cloud-accounts/${id}`, {
+        withCredentials: true,
+      });
+      if (Array.isArray(accountsResponse.data)) {
+        setConnectedAccounts(accountsResponse.data);
+      }
+    } catch (error) {
+      console.error("Error fetching accounts:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [fetchAccounts]);
+
+  // Listen for OAuth popup completion
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "oauth_complete" && event.data?.status === "success") {
+        showToast(`Connected ${event.data.email || "account"} successfully!`);
+        fetchAccounts();
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [fetchAccounts]);
+
+  // Also check URL params for callback redirect (fallback)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("status") === "success") {
+      const email = params.get("email");
+      showToast(`Connected ${email || "account"} successfully!`);
+      fetchAccounts();
+      // Clean up URL
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [fetchAccounts]);
+
+  const handleAddGoogleDrive = async () => {
+    try {
+      // Get signed state token from backend (carries user_id securely)
+      const stateRes = await axios.get(`${BACKEND_URL}/cloud-storage/oauth-state`, { withCredentials: true });
+      const state = stateRes.data.state;
+
+      const REDIRECT_URI = `${BACKEND_URL}/cloud-storage/callback`;
+      const authUrl =
+        `https://accounts.google.com/o/oauth2/v2/auth?` +
+        `client_id=${encodeURIComponent(CLIENT_ID)}` +
+        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+        `&response_type=code` +
+        `&scope=${encodeURIComponent(
+          "https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/photoslibrary.readonly"
+        )}` +
+        `&access_type=offline` +
+        `&prompt=consent` +
+        `&state=${encodeURIComponent(state)}`;
+
+      window.location.href = authUrl;
+    } catch (error) {
+      console.error("Failed to get OAuth state:", error);
+      showToast("Authentication error. Please try again.");
+    }
+  };
+
+  const handleAddDropbox = async () => {
+    try {
+      const stateRes = await axios.get(`${BACKEND_URL}/cloud-storage/oauth-state`, { withCredentials: true });
+      const state = stateRes.data.state;
+
+      const DROPBOX_REDIRECT_URI = `${BACKEND_URL}/cloud-storage/dropbox/callback`;
+      const authUrl =
+        `https://www.dropbox.com/oauth2/authorize?` +
+        `client_id=${encodeURIComponent(DROPBOX_CLIENT_ID)}` +
+        `&response_type=code` +
+        `&redirect_uri=${encodeURIComponent(DROPBOX_REDIRECT_URI)}` +
+        `&state=${encodeURIComponent(state)}`;
+
+      window.location.href = authUrl;
+    } catch (error) {
+      console.error("Failed to get OAuth state:", error);
+      showToast("Authentication error. Please try again.");
+    }
   };
 
   const handleSyncDropbox = async (accountId: number) => {
@@ -73,10 +127,14 @@ const CloudStorageAccounts = () => {
     try {
       await axios.post(`${BACKEND_URL}/search/sync-dropbox`, { account_id: accountId }, { withCredentials: true });
       setConnectedAccounts((prev) =>
-        prev.map((account) => account.id === accountId ? { ...account, lastSynced: new Date().toISOString() } : account)
+        prev.map((account) =>
+          account.id === accountId ? { ...account, lastSynced: new Date().toISOString() } : account
+        )
       );
+      showToast("Dropbox synced successfully!");
     } catch (error) {
       console.error("Error syncing Dropbox account:", error);
+      showToast("Sync failed. Please try again.");
     } finally {
       setSyncingAccount(null);
     }
@@ -94,8 +152,10 @@ const CloudStorageAccounts = () => {
           account.id === accountId ? { ...account, lastSynced: new Date().toISOString() } : account
         )
       );
+      showToast("Google Workspace synced successfully!");
     } catch (error) {
       console.error("Error syncing Google account:", error);
+      showToast("Sync failed. Please try again.");
     } finally {
       setSyncingAccount(null);
     }
@@ -105,221 +165,274 @@ const CloudStorageAccounts = () => {
     try {
       await axios.delete(`${BACKEND_URL}/cloud-accounts/${accountId}`, { withCredentials: true });
       setConnectedAccounts((prev) => prev.filter((account) => account.id !== accountId));
+      showToast("Account removed.");
     } catch (error) {
       console.error("Failed to remove account:", error);
+      showToast("Failed to remove account.");
     }
   };
 
-  const getProviderIcon = (provider: string) => {
-    console.log(provider)
-    if (provider === "Google Drive") {
-      return (
-        <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M21.8055 10.0415H21V10H12V14H17.6515C16.827 16.3285 14.6115 18 12 18C8.6865 18 6 15.3135 6 12C6 8.6865 8.6865 6 12 6C13.5295 6 14.921 6.577 15.9805 7.5195L18.809 4.691C17.023 3.0265 14.634 2 12 2C6.4775 2 2 6.4775 2 12C2 17.5225 6.4775 22 12 22C17.5225 22 22 17.5225 22 12C22 11.3295 21.931 10.675 21.8055 10.0415Z" fill="#FFC107" />
-            <path d="M3.15295 7.3455L6.43845 9.755C7.32745 7.554 9.48045 6 12 6C13.5295 6 14.921 6.577 15.9805 7.5195L18.809 4.691C17.023 3.0265 14.634 2 12 2C8.15895 2 4.82795 4.1685 3.15295 7.3455Z" fill="#FF3D00" />
-            <path d="M12 22C14.583 22 16.93 21.0115 18.7045 19.404L15.6095 16.785C14.5718 17.5742 13.3038 18.001 12 18C9.39903 18 7.19053 16.3415 6.35853 14.027L3.09753 16.5395C4.75253 19.778 8.11353 22 12 22Z" fill="#4CAF50" />
-            <path d="M21.8055 10.0415H21V10H12V14H17.6515C17.2571 15.1082 16.5467 16.0766 15.608 16.7855L15.6095 16.7845L18.7045 19.4035C18.4855 19.6025 22 17 22 12C22 11.3295 21.931 10.675 21.8055 10.0415Z" fill="#1976D2" />
-          </svg>
-        </div>
-      );
-    } else if (provider === "Dropbox") {
-      return (
-        <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center shadow-sm">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 6.3L7.5 9.3L12 12.3L7.5 15.3L3 12.3L7.5 9.3L3 6.3L7.5 3.3L12 6.3ZM7.5 15.3L12 18.3L16.5 15.3L12 12.3L16.5 9.3L21 12.3L16.5 15.3L21 18.3L16.5 21.3L12 18.3L7.5 21.3L3 18.3L7.5 15.3Z" fill="white" />
-          </svg>
-        </div>
-      );
-    }
-    return null;
-  };
+  const googleAccounts = connectedAccounts.filter((acc) => acc.provider === "Google Drive");
+  const dropboxAccounts = connectedAccounts.filter((acc) => acc.provider === "Dropbox");
 
   return (
-    <div className="bg-gradient-to-b from-blue-50 to-white dark:from-gray-900 dark:to-gray-800 min-h-screen">
-      <div className="max-w-5xl mx-auto px-4 py-12">
-        <header className="mb-12 text-center">
-          <h1 className="text-4xl font-bold text-blue-800 dark:text-blue-400 mb-4">Connected Cloud Storage</h1>
-          <p className="text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
-            Manage your cloud storage accounts for unified file search across platforms
-          </p>
-        </header>
-
-        <div className="mb-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8">
-          <div className="flex justify-between items-center mb-8 border-b border-gray-100 dark:border-gray-700 pb-6">
-            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Your Connected Accounts</h2>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md transition duration-200 flex items-center gap-2 font-medium"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 5V19M5 12H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              Add Account
-            </button>
-          </div>
-
-          {connectedAccounts.length === 0 ? (
-            <div className="bg-blue-50 dark:bg-gray-700 rounded-lg p-10 text-center">
-              <div className="w-20 h-20 bg-blue-100 dark:bg-gray-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M4 19C4 19.5304 4.21071 20.0391 4.58579 20.4142C4.96086 20.7893 5.46957 21 6 21H18C18.5304 21 19.0391 20.7893 19.4142 20.4142C19.7893 20.0391 20 19.5304 20 19V7L14 1H6C5.46957 1 4.96086 1.21071 4.58579 1.58579C4.21071 1.96086 4 2.46957 4 3V19Z" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M14 1V7H20" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M12 11V17" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M9 14H15" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-medium text-gray-900 dark:text-white mb-2">No accounts connected yet</h3>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">Connect your cloud storage accounts to enable unified search</p>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md transition duration-200 font-medium"
-              >
-                Connect Your First Account
-              </button>
+    <DashboardLayout>
+      <div className="max-w-6xl mx-auto p-6 md:p-12">
+        {/* Header Section */}
+        <div className="mb-12 flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
+          <div className="space-y-1">
+            <div className="text-[11px] uppercase tracking-[2px] text-primary font-bold">
+              Workspace Configuration
             </div>
+            <h2 className="text-3xl font-bold tracking-tight text-on-surface">Integrations & Sources</h2>
+            <p className="text-on-surface-variant text-sm max-w-lg">
+              Manage your digital architecture. Connect cloud providers and local drives to
+              centralize your workflow.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs font-mono bg-surface-container-lowest px-3 py-1.5 rounded-lg border border-outline-variant/15">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+            <span className="text-on-surface-variant">System Status: Optimal</span>
+          </div>
+        </div>
+
+        {/* Integration Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {isLoading ? (
+            // Skeleton Loading State
+            [1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="bg-surface-container-low rounded-xl p-6 h-[200px] border border-outline-variant/10 animate-pulse flex flex-col justify-between"
+              >
+                <div className="flex justify-between items-start">
+                  <div className="w-12 h-12 bg-surface-container-high rounded-lg" />
+                  <div className="w-20 h-5 bg-surface-container-high rounded-full" />
+                </div>
+                <div className="space-y-3">
+                  <div className="h-6 w-2/3 bg-surface-container-high rounded" />
+                  <div className="h-4 w-1/2 bg-surface-container-high rounded" />
+                  <div className="h-10 w-full bg-surface-container-high rounded-lg" />
+                </div>
+              </div>
+            ))
           ) : (
-            <div className="grid gap-6">
-              {connectedAccounts.map((account) => (
-                <div key={account.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-6 hover:shadow-md transition duration-200">
-                  <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center">
-                      {getProviderIcon(account.provider)}
-                      <div className="ml-4">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                          {account.provider === "Google Drive" ? "Google Services" : account.provider}
-                        </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{account.email}</p>
-                      </div>
+            <>
+              {/* All Connected Google Drive Accounts */}
+              {googleAccounts.map((account) => (
+                <div
+                  key={account.id}
+                  className="group bg-surface-container-low hover:bg-surface-container transition-all duration-300 rounded-xl p-6 relative overflow-hidden flex flex-col justify-between h-[200px]"
+                >
+                  <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <span className="material-symbols-outlined text-[80px]">cloud_queue</span>
+                  </div>
+                  <div className="relative z-10 flex items-start justify-between">
+                    <div className="w-12 h-12 rounded-lg bg-surface-container-lowest flex items-center justify-center border border-outline-variant/15">
+                      <span className="material-symbols-outlined text-primary text-[28px]">cloud_queue</span>
                     </div>
-                    <div className="flex items-center gap-4 flex-wrap">
-                      <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M12 8V12L15 15M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <span className="text-sm">
-                          {account.lastSynced
-                            ? `Last synced: ${new Date(account.lastSynced).toLocaleString()}`
-                            : "Not yet synced"}
-                        </span>
-                      </div>
-                      <div className="flex gap-3">
-                        {account.provider === "Dropbox" ? (
-                          <button
-                            onClick={() => handleSyncDropbox(account.id)}
-                            disabled={syncingAccount === account.id}
-                            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow-sm disabled:bg-gray-400 transition duration-200 flex items-center gap-2"
-                          >
-                            {syncingAccount === account.id ? (
-                              <>
-                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Syncing...
-                              </>
-                            ) : (
-                              <>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <path d="M4 12.25V13C4 17.1421 7.85786 20.5 12 20.5C16.1421 20.5 20 17.1421 20 13V12.25M12 4V14M12 4L8 8M12 4L16 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                                Sync Dropbox
-                              </>
-                            )}
-                          </button>
+                    <div className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-wider">
+                      Connected
+                    </div>
+                  </div>
+                  <div className="relative z-10">
+                    <h3 className="text-lg font-semibold text-on-surface mb-1">Google Workspace</h3>
+                    <div className="text-xs font-mono text-on-surface-variant mb-4">{account.email}</div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleSyncGoogleAccount(account.id)}
+                        disabled={syncingAccount === account.id}
+                        className="flex-1 py-2 rounded-lg border border-outline-variant/20 text-xs font-medium hover:bg-surface-container-high transition-colors text-on-surface flex items-center justify-center gap-2"
+                      >
+                        {syncingAccount === account.id ? (
+                          <span className="material-symbols-outlined text-[16px] animate-spin">refresh</span>
                         ) : (
-                          <button
-                            onClick={() => handleSyncGoogleAccount(account.id)}
-                            disabled={syncingAccount === account.id}
-                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm disabled:bg-gray-400 transition duration-200 flex items-center gap-2"
-                          >
-                            {syncingAccount === account.id ? (
-                              <>
-                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Syncing...
-                              </>
-                            ) : (
-                              <>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <path d="M4 12.25V13C4 17.1421 7.85786 20.5 12 20.5C16.1421 20.5 20 17.1421 20 13V12.25M12 4V14M12 4L8 8M12 4L16 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                                Sync Google
-                              </>
-                            )}
-                          </button>
+                          "Sync"
                         )}
-                        <button
-                          onClick={() => handleRemoveAccount(account.id)}
-                          className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg shadow-sm transition duration-200 flex items-center gap-2"
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M19 7L18.1327 19.1425C18.0579 20.1891 17.187 21 16.1378 21H7.86224C6.81296 21 5.94208 20.1891 5.86732 19.1425L5 7M10 11V17M14 11V17M15 7V4C15 3.44772 14.5523 3 14 3H10C9.44772 3 9 3.44772 9 4V7M4 7H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          Remove
-                        </button>
-                      </div>
+                      </button>
+                      <button
+                        onClick={() => handleRemoveAccount(account.id)}
+                        className="py-2 px-3 rounded-lg border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                      >
+                        Remove
+                      </button>
                     </div>
                   </div>
                 </div>
               ))}
-            </div>
+
+              {/* Add Another Google Account Card — ALWAYS shown */}
+              <div className="group bg-surface-container-lowest hover:bg-surface-container-low transition-all duration-300 rounded-xl p-6 border border-outline-variant/10 flex flex-col justify-between h-[200px]">
+                <div className="relative z-10 flex items-start justify-between">
+                  <div className="w-12 h-12 rounded-lg bg-surface-container-low flex items-center justify-center">
+                    <span className="material-symbols-outlined text-on-surface-variant text-[28px]">cloud_queue</span>
+                  </div>
+                  <div className="px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant text-[10px] font-bold uppercase tracking-wider">
+                    {googleAccounts.length > 0 ? "Add More" : "Inactive"}
+                  </div>
+                </div>
+                <div className="relative z-10">
+                  <h3 className="text-lg font-semibold text-on-surface mb-1">
+                    {googleAccounts.length > 0 ? "Add Google Account" : "Google Workspace"}
+                  </h3>
+                  <div className="text-xs text-on-surface-variant mb-4">
+                    {googleAccounts.length > 0
+                      ? `${googleAccounts.length} account${googleAccounts.length > 1 ? "s" : ""} connected`
+                      : "Index Drive, Gmail & Photos"}
+                  </div>
+                  <button
+                    onClick={handleAddGoogleDrive}
+                    className="w-full py-2 bg-gradient-to-r from-[#c4c0ff] to-[#8781ff] rounded-lg text-[#1a1b23] text-xs font-bold hover:opacity-90 transition-all"
+                  >
+                    {googleAccounts.length > 0 ? "Connect Another" : "Connect Google"}
+                  </button>
+                </div>
+              </div>
+
+              {/* All Connected Dropbox Accounts */}
+              {dropboxAccounts.map((account) => (
+                <div
+                  key={account.id}
+                  className="group bg-surface-container-low hover:bg-surface-container transition-all duration-300 rounded-xl p-6 relative overflow-hidden flex flex-col justify-between h-[200px]"
+                >
+                  <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <span className="material-symbols-outlined text-[80px]">cloud_upload</span>
+                  </div>
+                  <div className="relative z-10 flex items-start justify-between">
+                    <div className="w-12 h-12 rounded-lg bg-surface-container-lowest flex items-center justify-center border border-outline-variant/15">
+                      <span className="material-symbols-outlined text-[#0061FF] text-[28px]">folder_shared</span>
+                    </div>
+                    <div className="px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold uppercase tracking-wider">
+                      Connected
+                    </div>
+                  </div>
+                  <div className="relative z-10">
+                    <h3 className="text-lg font-semibold text-on-surface mb-1">Dropbox</h3>
+                    <div className="text-xs font-mono text-on-surface-variant mb-4">
+                      {account.email} · Last sync:{" "}
+                      {account.lastSynced ? new Date(account.lastSynced).toLocaleTimeString() : "Never"}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleSyncDropbox(account.id)}
+                        disabled={syncingAccount === account.id}
+                        className="flex-1 py-2 rounded-lg border border-outline-variant/20 text-xs font-medium hover:bg-surface-container-high transition-colors text-on-surface flex items-center justify-center gap-2"
+                      >
+                        {syncingAccount === account.id ? (
+                          <span className="material-symbols-outlined text-[16px] animate-spin">refresh</span>
+                        ) : (
+                          "Sync"
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleRemoveAccount(account.id)}
+                        className="py-2 px-3 rounded-lg border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Add Another Dropbox Account Card — ALWAYS shown */}
+              <div className="group bg-surface-container-lowest hover:bg-surface-container-low transition-all duration-300 rounded-xl p-6 border border-outline-variant/10 flex flex-col justify-between h-[200px]">
+                <div className="relative z-10 flex items-start justify-between">
+                  <div className="w-12 h-12 rounded-lg bg-surface-container-low flex items-center justify-center">
+                    <span className="material-symbols-outlined text-on-surface-variant text-[28px]">cloud_upload</span>
+                  </div>
+                  <div className="px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant text-[10px] font-bold uppercase tracking-wider">
+                    {dropboxAccounts.length > 0 ? "Add More" : "Inactive"}
+                  </div>
+                </div>
+                <div className="relative z-10">
+                  <h3 className="text-lg font-semibold text-on-surface mb-1">
+                    {dropboxAccounts.length > 0 ? "Add Dropbox Account" : "Dropbox"}
+                  </h3>
+                  <div className="text-xs text-on-surface-variant mb-4">
+                    {dropboxAccounts.length > 0
+                      ? `${dropboxAccounts.length} account${dropboxAccounts.length > 1 ? "s" : ""} connected`
+                      : "Index professional cloud files"}
+                  </div>
+                  <button
+                    onClick={handleAddDropbox}
+                    className="w-full py-2 bg-gradient-to-r from-blue-400 to-blue-600 rounded-lg text-white text-xs font-bold hover:opacity-90 transition-all"
+                  >
+                    {dropboxAccounts.length > 0 ? "Connect Another" : "Connect Dropbox"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Local Computer */}
+              <div className="group bg-surface-container-low hover:bg-surface-container lg:col-span-1 transition-all duration-300 rounded-xl p-6 relative overflow-hidden flex flex-col justify-between h-[200px]">
+                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-all">
+                  <span className="material-symbols-outlined text-[80px]">computer</span>
+                </div>
+                <div className="relative z-10 flex items-start justify-between">
+                  <div className="w-12 h-12 rounded-xl bg-surface-container-lowest flex items-center justify-center border border-outline-variant/15 shrink-0">
+                    <span className="material-symbols-outlined text-primary text-[28px]">desktop_windows</span>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-full bg-primary/20 text-primary text-[10px] font-black uppercase tracking-wider border border-primary/20">
+                    Primary
+                  </span>
+                </div>
+
+                <div className="relative z-10">
+                  <h3 className="text-xl font-semibold text-on-surface mb-1">Local Architecture</h3>
+                  <p className="text-[10px] font-mono text-on-surface-variant mb-4 opacity-70">
+                    Agent Configured Desktop
+                  </p>
+
+                  <div className="flex gap-2">
+                    <button className="flex-1 py-2 rounded-lg bg-surface-container-high text-xs font-medium hover:bg-surface-bright transition-colors text-on-surface">
+                      Manage Local Agent
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
         </div>
 
-        {showAddModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-8 animate-fadeIn">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Connect Cloud Storage</h2>
-                <button
-                  onClick={() => setShowAddModal(false)}
-                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
+        {/* Security Audit Bottom Banner */}
+        <div className="mt-12 bg-surface-container-low rounded-2xl p-8 flex flex-col md:flex-row items-center gap-8 border border-outline-variant/10">
+          <div className="flex -space-x-3 overflow-hidden">
+            <div className="w-10 h-10 rounded-full bg-blue-500 border-2 border-surface flex items-center justify-center">
+              <span className="material-symbols-outlined text-white text-[20px]">lock</span>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-green-500 border-2 border-surface flex items-center justify-center">
+              <span className="material-symbols-outlined text-white text-[20px]">shield</span>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-purple-500 border-2 border-surface flex items-center justify-center">
+              <span className="material-symbols-outlined text-white text-[20px]">key</span>
+            </div>
+          </div>
+          <div className="flex-1 text-center md:text-left">
+            <h4 className="text-on-surface font-semibold text-lg">Shared Security Model</h4>
+            <p className="text-on-surface-variant text-sm mt-1">
+              All connected sources use end-to-end encryption. Your data is indexed locally and never leaves your
+              architected environment.
+            </p>
+          </div>
+          <button className="px-6 py-2.5 rounded-lg border border-outline-variant/30 text-sm font-semibold hover:bg-surface-container-high transition-all">
+            View Security Audit
+          </button>
+        </div>
 
-              <p className="text-gray-600 dark:text-gray-300 mb-6">Choose a cloud storage provider to connect to your account.</p>
-
-              <div className="space-y-4">
-                <button
-                  onClick={handleAddGoogleDrive}
-                  className="w-full py-3 px-4 bg-white hover:bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm transition duration-200 flex items-center justify-center gap-3"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M21.8055 10.0415H21V10H12V14H17.6515C16.827 16.3285 14.6115 18 12 18C8.6865 18 6 15.3135 6 12C6 8.6865 8.6865 6 12 6C13.5295 6 14.921 6.577 15.9805 7.5195L18.809 4.691C17.023 3.0265 14.634 2 12 2C6.4775 2 2 6.4775 2 12C2 17.5225 6.4775 22 12 22C17.5225 22 22 17.5225 22 12C22 11.3295 21.931 10.675 21.8055 10.0415Z" fill="#FFC107" />
-                    <path d="M3.15295 7.3455L6.43845 9.755C7.32745 7.554 9.48045 6 12 6C13.5295 6 14.921 6.577 15.9805 7.5195L18.809 4.691C17.023 3.0265 14.634 2 12 2C8.15895 2 4.82795 4.1685 3.15295 7.3455Z" fill="#FF3D00" />
-                    <path d="M12 22C14.583 22 16.93 21.0115 18.7045 19.404L15.6095 16.785C14.5718 17.5742 13.3038 18.001 12 18C9.39903 18 7.19053 16.3415 6.35853 14.027L3.09753 16.5395C4.75253 19.778 8.11353 22 12 22Z" fill="#4CAF50" />
-                    <path d="M21.8055 10.0415H21V10H12V14H17.6515C17.2571 15.1082 16.5467 16.0766 15.608 16.7855L15.6095 16.7845L18.7045 19.4035C18.4855 19.6025 22 17 22 12C22 11.3295 21.931 10.675 21.8055 10.0415Z" fill="#1976D2" />
-                  </svg>
-                  <span className="font-medium">Connect Google Services</span>
-                </button>
-                <button
-                  onClick={handleAddDropbox}
-                  className="w-full py-3 px-4 bg-white hover:bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm transition duration-200 flex items-center justify-center gap-3"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 6.3L7.5 9.3L12 12.3L7.5 15.3L3 12.3L7.5 9.3L3 6.3L7.5 3.3L12 6.3ZM7.5 15.3L12 18.3L16.5 15.3L12 12.3L16.5 9.3L21 12.3L16.5 15.3L21 18.3L16.5 21.3L12 18.3L7.5 21.3L3 18.3L7.5 15.3Z" fill="#0061FF" />
-                  </svg>
-                  <span className="font-medium">Connect Dropbox</span>
-                </button>
-              </div>
-
-              <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-                <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-                  By connecting an account, you're allowing our service to access your files for search functionality.
-                </p>
-              </div>
+        {/* Toast */}
+        {toastMessage && (
+          <div
+            className="fixed bottom-4 right-4 bg-surface-container-high text-white border border-outline-variant/20 px-4 py-3 rounded-xl shadow-2xl z-[100] backdrop-blur-md"
+            style={{ animation: "slideUp 0.25s ease-out" }}
+          >
+            <div className="flex items-center">
+              <span className="material-symbols-outlined mr-2 text-primary">check_circle</span>
+              <p className="text-sm font-medium tracking-wide">{toastMessage}</p>
             </div>
           </div>
         )}
       </div>
-    </div>
+    </DashboardLayout>
   );
 };
 

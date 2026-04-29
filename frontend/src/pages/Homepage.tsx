@@ -1,433 +1,278 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import TypingAnimation from "./TypingAnimation";
-import { 
-  Search, 
-  FileText, 
-  Cloud, 
-  Shield, 
-  Zap, 
-  Layers,
-  ArrowRight,
-  Download,
-  Monitor,
-  CheckCircle2
-} from "lucide-react";
+import React from "react";
+import { World } from "../components/ui/globe";
 
-const sources: string[] = [
-  "Local Files",
-  "Google Drive",
-  "Gmail Attachments",
-  "Google Photos",
-  "Dropbox",
-];
+const globeConfig = {
+  pointSize: 6,
+  globeColor: "#062056",
+  showAtmosphere: true,
+  atmosphereColor: "#FFFFFF",
+  atmosphereAltitude: 0.1,
+  polygonColor: "rgba(255,255,255,0.7)",
+  ambientLight: "#38bdf8",
+  emissive: "#062056",
+  emissiveIntensity: 0.1,
+  shininess: 0.9,
+  arcTime: 1000,
+  arcLength: 0.9,
+  rings: 3,
+  maxRings: 4,
+  initialPosition: { lat: 22.3193, lng: 114.1694 },
+  autoRotate: true,
+  autoRotateSpeed: 1,
+};
 
-interface Feature {
-  title: string;
-  desc: string;
-  icon: React.ReactNode;
-  color: string;
-}
-
-const features: Feature[] = [
-  { 
-    title: "Smart Search", 
-    desc: "Elasticsearch helps you find files instantly, even across cloud storage.", 
-    icon: <Search className="w-full h-full" />,
-    color: "from-blue-500 to-cyan-400"
-  },
-  { 
-    title: "Cloud Sync", 
-    desc: "Securely access and manage your files from anywhere, on any device.", 
-    icon: <Cloud className="w-full h-full" />,
-    color: "from-indigo-500 to-purple-400"
-  },
-  { 
-    title: "Blazing Fast", 
-    desc: "Lightning-fast indexing ensures no delay in retrieving files.", 
-    icon: <Zap className="w-full h-full" />,
-    color: "from-amber-500 to-yellow-400"
-  },
-  { 
-    title: "Privacy First", 
-    desc: "Your data remains safe with industry-standard encryption.", 
-    icon: <Shield className="w-full h-full" />,
-    color: "from-green-500 to-emerald-400"
-  },
-  { 
-    title: "Advanced Filtering", 
-    desc: "Filter Files By Type, Storage Platfroms.", 
-    icon: <Layers className="w-full h-full" />,
-    color: "from-fuchsia-500 to-pink-400"
-  },
-  { 
-    title: "User-Friendly", 
-    desc: "Minimalist UI designed for maximum productivity.", 
-    icon: <FileText className="w-full h-full" />,
-    color: "from-blue-500 to-sky-400"
-  },
+const sampleArcs = [
+  { order: 1, startLat: -19.885592, startLng: -43.951191, endLat: -22.9068, endLng: -43.1729, arcAlt: 0.1, color: "#8b5cf6" },
+  { order: 2, startLat: 28.6139, startLng: 77.209, endLat: 34.0522, endLng: -118.2437, arcAlt: 0.2, color: "#3b82f6" },
+  { order: 3, startLat: 51.5074, startLng: -0.1278, endLat: 40.7128, endLng: -74.006, arcAlt: 0.3, color: "#6366f1" },
+  { order: 4, startLat: 35.6762, startLng: 139.6503, endLat: 37.7749, endLng: -122.4194, arcAlt: 0.25, color: "#8b5cf6" },
+  { order: 5, startLat: -33.8688, startLng: 151.2093, endLat: 1.3521, endLng: 103.8198, arcAlt: 0.15, color: "#3b82f6" },
+  { order: 6, startLat: 52.52, startLng: 13.405, endLat: 48.8566, endLng: 2.3522, arcAlt: 0.1, color: "#6366f1" },
+  { order: 7, startLat: 19.076, startLng: 72.8777, endLat: 25.2048, endLng: 55.2708, arcAlt: 0.1, color: "#8b5cf6" },
+  { order: 8, startLat: -26.2041, startLng: 28.0473, endLat: -1.2921, endLng: 36.8219, arcAlt: 0.2, color: "#3b82f6" },
+  { order: 9, startLat: 31.2304, startLng: 121.4737, endLat: 39.9042, endLng: 116.4074, arcAlt: 0.12, color: "#6366f1" },
+  { order: 10, startLat: 45.5017, startLng: -73.5673, endLat: 53.5461, endLng: -113.4938, arcAlt: 0.15, color: "#8b5cf6" }
 ];
 
 const Homepage: React.FC = () => {
-
   return (
-    <div className="relative w-full min-h-screen bg-gradient-to-b from-slate-50 to-white dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-white flex flex-col overflow-hidden transition duration-300">
-     
-      
-      
-
-      {/* Background elements - made more subtle and modern */}
-      <div className="absolute top-0 right-0 w-1/2 h-1/2 bg-gradient-to-br from-blue-400/5 to-purple-500/5 rounded-full blur-3xl" />
-      <div className="absolute -bottom-1/4 -left-1/4 w-1/2 h-1/2 bg-gradient-to-tr from-cyan-400/5 to-blue-500/5 rounded-full blur-3xl" />
-      
-      {/* Updated abstract shapes */}
-      <svg className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-30 dark:opacity-10" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.05" />
-            <stop offset="100%" stopColor="#6366F1" stopOpacity="0.05" />
-          </linearGradient>
-        </defs>
-        <path d="M0,0 C200,100 300,200 400,100 C500,0 600,100 1000,50 L1000,0 Z" fill="url(#grad1)" />
-        <path d="M0,1000 C150,900 350,850 500,950 C650,1050 750,900 1000,950 L1000,1000 Z" fill="url(#grad1)" />
-      </svg>
-      
-      {/* Animated floating icons with improved visual style */}
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 1, duration: 1 }}
-        className="absolute inset-0 pointer-events-none overflow-hidden"
-      >
-        {[...Array(8)].map((_, i) => (
-          <motion.div
-            key={i}
-            initial={{ 
-              x: Math.random() * 100 - 50 + "%", 
-              y: Math.random() * 100 - 50 + "%", 
-              opacity: 0,
-              rotate: Math.random() * 30 - 15
-            }}
-            animate={{ 
-              y: [`${Math.random() * 10 - 5}%`, `${Math.random() * 10 - 5}%`], 
-              opacity: Math.random() * 0.2 + 0.05,
-              rotate: [Math.random() * 10 - 5, Math.random() * 10 - 5]
-            }}
-            transition={{ 
-              y: { duration: Math.random() * 5 + 8, repeat: Infinity, repeatType: "reverse" },
-              rotate: { duration: Math.random() * 5 + 10, repeat: Infinity, repeatType: "reverse" },
-              delay: Math.random() * 2
-            }}
-            className="absolute"
-            style={{
-              top: `${Math.random() * 100}%`,
-              left: `${Math.random() * 100}%`,
-            }}
-          >
-            {i % 5 === 0 && <FileText size={Math.random() * 24 + 16} className="text-blue-400/20 dark:text-blue-400/10" />}
-            {i % 5 === 1 && <Cloud size={Math.random() * 24 + 16} className="text-indigo-400/20 dark:text-indigo-400/10" />}
-            {i % 5 === 2 && <Search size={Math.random() * 24 + 16} className="text-cyan-400/20 dark:text-cyan-400/10" />}
-            {i % 5 === 3 && <Zap size={Math.random() * 24 + 16} className="text-amber-400/20 dark:text-amber-400/10" />}
-            {i % 5 === 4 && <Shield size={Math.random() * 24 + 16} className="text-green-400/20 dark:text-green-400/10" />}
-          </motion.div>
-        ))}
-      </motion.div>
-
-      {/* Hero section with refined layout and transitions */}
-      <header className="relative flex flex-col items-center justify-center text-center min-h-screen pt-20 px-4 sm:px-6 lg:px-8 z-10">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.8 }}
-          className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-blue-500/10 dark:bg-blue-600/20 rounded-full blur-3xl"
-        />
-
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="flex flex-col items-center max-w-4xl mx-auto"
-        >
-          {/* Modern badge design */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.1, duration: 0.5 }}
-            className="mb-6 px-4 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-full font-medium text-sm flex items-center gap-2"
-          >
-            <span className="flex h-2 w-2 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-            </span>
-            <span>Next-Gen File Search Technology</span>
-          </motion.div>
-
-          {/* Glass effect on logo container */}
-          <motion.div
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.2, duration: 0.5, type: "spring" }}
-            className="mb-8 bg-gradient-to-br from-blue-500 to-indigo-600 p-5 rounded-2xl shadow-lg rotate-3 hover:rotate-0 transition-transform duration-300"
-          >
-            <Search size={48} className="text-white" />
-          </motion.div>
-
-          {/* Modern typography with enhanced gradient */}
-          <motion.h1 
-            className="text-5xl sm:text-6xl md:text-7xl font-extrabold leading-tight mb-4"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.5 }}
-          >
-            <span className="text-gray-900 dark:text-white">Find</span>{" "}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600 dark:from-blue-400 dark:via-indigo-400 dark:to-purple-500">
-              Files Instantly
-            </span>
-          </motion.h1>
-        </motion.div>
-
-        <motion.div
-          className="text-xl md:text-2xl text-gray-700 dark:text-gray-300 mt-2 font-medium flex items-center justify-center flex-wrap gap-2"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5, duration: 0.5 }}
-        >
-          <span>Instantly locate any file from</span>
-          <span className="relative">
-            <span className="absolute inset-0 bg-blue-100/50 dark:bg-blue-900/30 rounded-md -z-10 blur"></span>
-            <TypingAnimation textList={sources} />
-          </span>
-        </motion.div>
-
-        <motion.p
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6, duration: 0.5 }}
-          className="text-lg md:text-xl text-gray-600 dark:text-gray-400 mt-6 max-w-2xl"
-        >
-          A simple, fast, and secure way to locate your files across all your storage solutions with AI-powered search capabilities.
-        </motion.p>
-
-        {/* Feature icons with glass morphism effect */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7, duration: 0.5 }}
-          className="flex flex-wrap justify-center gap-4 mt-10"
-        >
-          {features.slice(0, 3).map((feature, idx) => (
-            <motion.div 
-              key={idx}
-              initial={{ opacity: 0, y: 10 }}
+    <div className="bg-surface-container-lowest text-[#e3e1ea] font-sans selection:bg-primary selection:text-on-primary-container min-h-screen">
+      <main className="pt-32">
+        {/* Hero Section */}
+        <section className="max-w-7xl mx-auto px-8 mb-32 grid lg:grid-cols-2 gap-12 items-center">
+          <div className="relative z-10">
+            <motion.h1 
+              initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.8 + idx * 0.1, duration: 0.5 }}
-              whileHover={{ y: -5, scale: 1.05 }}
-              className="flex flex-col items-center group"
+              transition={{ duration: 0.5 }}
+              className="text-5xl md:text-7xl font-bold tracking-tight text-white mb-6 leading-[1.1]"
             >
-              <div className="w-14 h-14 flex items-center justify-center rounded-xl backdrop-blur-md bg-white/70 dark:bg-gray-800/70 shadow-lg border border-white/20 dark:border-gray-700/30 p-3 mb-3 overflow-hidden">
-                <div className={`w-8 h-8 text-white bg-gradient-to-br ${feature.color} rounded-lg`}>
-                  {feature.icon}
-                </div>
-              </div>
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">{feature.title}</span>
+              Find any file,<br />
+              <span className="text-primary">anywhere.</span>
+            </motion.h1>
+            <motion.p 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="text-lg text-on-surface-variant max-w-lg mb-10 leading-relaxed"
+            >
+              ZenXplor aggregates your local disk, cloud drives, and email attachments into a single, lightning-fast command bar. Stop digging, start finding.
+            </motion.p>
+            <motion.div 
+               initial={{ opacity: 0, y: 20 }}
+               animate={{ opacity: 1, y: 0 }}
+               transition={{ duration: 0.5, delay: 0.2 }}
+               className="flex flex-wrap gap-4 mb-12"
+            >
+              <Link to="/login" className="signature-glow text-on-primary-fixed px-8 py-4 rounded-xl font-bold text-base hover:shadow-[0_0_30px_rgba(135,129,255,0.3)] transition-all">Start for free</Link>
+              <a href="https://github.com/Servesh21/file_search1/releases/latest/download/zenxplor-agent.exe" className="ghost-border text-primary px-8 py-4 rounded-xl font-bold text-base bg-surface-container-low/50 hover:bg-surface-container-high transition-all flex items-center gap-2">
+                 <span className="material-symbols-outlined text-[20px]">download</span> Download Agent
+              </a>
             </motion.div>
-          ))}
-        </motion.div>
-
-        {/* Modern call-to-action buttons with enhanced visual effects */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.9, duration: 0.5 }}
-          className="mt-12 flex flex-col sm:flex-row gap-4 items-center"
-        >
-          <Link
-            to="/login"
-            className="mb-3 group relative inline-flex items-center justify-center px-8 py-3.5 text-lg font-medium overflow-hidden bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white rounded-xl shadow-lg"
-          >
-            <span className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-blue-500/0 via-white/30 to-blue-500/0 -translate-x-full transform transition-transform duration-700 ease-in-out group-hover:translate-x-full"></span>
-            <span className="relative flex items-center">
-              Get Started
-              <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
-            </span>
-          </Link>
-          
-
-        </motion.div>
-
-        {/* Modernized scroll indicator */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.2, duration: 0.8 }}
-          whileHover={{ y: 5 }}
-          className="absolute bottom-8 w-full flex justify-center cursor-pointer"
-        >
-          
-        </motion.div>
-      </header>
-
-      {/* ── Desktop Agent Download Banner ───────────────────────────────── */}
-      <section className="w-full py-16 px-4 sm:px-6 lg:px-8 relative z-10">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
-          className="max-w-5xl mx-auto"
-        >
-          <div className="relative rounded-3xl overflow-hidden bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-600 shadow-2xl p-0.5">
-            <div className="bg-gray-900/95 dark:bg-gray-900/98 rounded-3xl px-8 py-10 sm:px-12 flex flex-col md:flex-row items-center gap-8">
-              
-              {/* Left: icon + text */}
-              <div className="flex-1 text-center md:text-left">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold mb-4">
-                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                  Free Windows App
-                </div>
-                <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-3">
-                  Search Local Files Too
-                </h2>
-                <p className="text-gray-300 text-lg mb-6 max-w-lg">
-                  The <span className="text-indigo-300 font-semibold">ZenXplor Desktop Agent</span> runs silently in the background, indexing your PC files so you can search them alongside your cloud storage — all from the web app.
-                </p>
-                <ul className="space-y-2 mb-8 text-sm text-gray-400">
-                  {[
-                    "Indexes PDFs, Word docs, Excel, code files & more",
-                    "Real-time file watching — new files appear instantly",
-                    "Runs silently in the system tray, uses < 50 MB RAM",
-                    "Open & download local files directly from the browser",
-                  ].map((item, i) => (
-                    <li key={i} className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-
-                <div className="flex flex-wrap gap-3 justify-center md:justify-start">
-                  <a
-                    href="https://github.com/Servesh21/file_search1/releases/latest/download/zenxplor-agent.exe"
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-400 hover:to-blue-400 text-white font-semibold shadow-lg transition-all hover:shadow-indigo-500/30 hover:scale-105"
-                    download
-                    id="download-agent-btn"
-                  >
-                    <Download className="w-5 h-5" />
-                    Download for Windows
-                  </a>
-                  <span className="inline-flex items-center gap-1.5 px-4 py-3 rounded-xl bg-white/5 text-gray-400 text-sm border border-white/10">
-                    <Monitor className="w-4 h-4" />
-                    Windows 10 / 11 · 64-bit
-                  </span>
-                </div>
+            
+            {/* Typewriter Search Demo Mockup */}
+            <motion.div 
+               initial={{ opacity: 0, scale: 0.9 }}
+               animate={{ opacity: 1, scale: 1 }}
+               transition={{ duration: 0.6, delay: 0.4 }}
+               className="surface-container-lowest ghost-border rounded-xl p-4 max-w-md shadow-2xl relative overflow-hidden bg-surface-container-lowest"
+            >
+              <div className="flex items-center gap-3 text-on-surface-variant mb-2">
+                <span className="material-symbols-outlined text-primary scale-75">search</span>
+                <span className="font-mono text-sm">Searching for "Q4 Financials..."</span>
               </div>
+              <div className="h-1 w-full bg-surface-container-highest rounded-full overflow-hidden">
+                <div className="h-full bg-primary w-2/3 animate-pulse"></div>
+              </div>
+            </motion.div>
+          </div>
+        </section>
 
-              {/* Right: animated visual */}
-              <div className="hidden md:flex flex-col items-center justify-center flex-shrink-0">
-                <motion.div
-                  animate={{ y: [0, -10, 0] }}
-                  transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                  className="relative"
-                >
-                  <div className="w-40 h-40 rounded-3xl bg-gradient-to-br from-indigo-500/30 to-blue-500/30 border border-indigo-500/30 flex items-center justify-center shadow-2xl">
-                    <Monitor className="w-20 h-20 text-indigo-300" />
-                  </div>
-                  <div className="absolute -bottom-3 -right-3 w-12 h-12 rounded-2xl bg-green-500 flex items-center justify-center shadow-lg">
-                    <CheckCircle2 className="w-7 h-7 text-white" />
-                  </div>
-                </motion.div>
-                <p className="mt-6 text-gray-500 text-xs text-center">v1.0.0 · ~13 MB</p>
+        {/* Fixed Globe Background Component */}
+        <div className="fixed bottom-0 right-0 w-[600px] h-[600px] pointer-events-none z-0 translate-x-1/4 translate-y-1/4 overflow-hidden">
+          <div className="w-full h-full relative opacity-60">
+            <World globeConfig={globeConfig} data={sampleArcs} /> 
+            <div className="absolute inset-0 bg-gradient-to-t from-surface-container-lowest via-transparent to-transparent"></div>
+          </div>
+        </div>
+
+        {/* Trust Bar */}
+        <section className="mb-32 overflow-hidden py-8 bg-surface-container-lowest/30">
+          <div className="flex whitespace-nowrap gap-24 items-center justify-center opacity-30 grayscale hover:grayscale-0 transition-all">
+            <div className="text-xl font-bold text-white flex items-center gap-2"><span className="material-symbols-outlined">drive_eta</span> Google Drive</div>
+            <div className="text-xl font-bold text-white flex items-center gap-2"><span className="material-symbols-outlined">mail</span> Gmail</div>
+            <div className="text-xl font-bold text-white flex items-center gap-2"><span className="material-symbols-outlined">cloud</span> Dropbox</div>
+            <div className="text-xl font-bold text-white flex items-center gap-2"><span className="material-symbols-outlined">event_note</span> Notion</div>
+            <div className="text-xl font-bold text-white flex items-center gap-2"><span className="material-symbols-outlined">forum</span> Slack</div>
+          </div>
+        </section>
+
+        {/* Feature Bento Grid */}
+        <section className="max-w-7xl mx-auto px-8 mb-32">
+          <h2 className="text-3xl font-semibold mb-12 text-center text-white">Engineered for Precision</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Row 1 */}
+            <div className="md:col-span-2 bg-surface-container-low rounded-xl p-8 flex flex-col justify-between min-h-[320px]">
+              <div>
+                <span className="text-[11px] uppercase tracking-widest text-primary font-bold mb-4 block">Centralized Control</span>
+                <h3 className="text-2xl font-bold mb-4 text-white">One bar. Every file.</h3>
+                <p className="text-on-surface-variant leading-relaxed">The only interface you'll ever need. Access millions of documents across 15+ integrations in one unified view.</p>
+              </div>
+              <div className="mt-8 flex gap-2">
+                <div className="w-12 h-12 rounded-lg bg-surface-container-high flex items-center justify-center"><span className="material-symbols-outlined text-primary">description</span></div>
+                <div className="w-12 h-12 rounded-lg bg-surface-container-high flex items-center justify-center"><span className="material-symbols-outlined text-primary">image</span></div>
+                <div className="w-12 h-12 rounded-lg bg-surface-container-high flex items-center justify-center"><span className="material-symbols-outlined text-primary">table_chart</span></div>
+              </div>
+            </div>
+            
+            <div className="bg-surface-container-high rounded-xl p-8 flex flex-col justify-center items-center text-center">
+              <span className="text-6xl font-mono font-bold text-primary mb-2 text-primary">50ms</span>
+              <h3 className="text-xl font-bold text-white">search</h3>
+              <p className="text-sm text-on-surface-variant mt-2">Faster than the human eye can blink. Instant indexing.</p>
+            </div>
+            
+            {/* Row 2 */}
+            <div className="md:col-span-3 bg-surface-container-lowest ghost-border rounded-xl p-12 overflow-hidden relative group">
+              <div className="relative z-10 max-w-2xl">
+                <span className="text-[11px] uppercase tracking-widest text-primary font-bold mb-4 block">Infinite Connectivity</span>
+                <h3 className="text-3xl font-bold mb-6 text-white">Unified local, cloud, and email.</h3>
+                <p className="text-on-surface-variant text-lg">No more switching tabs. ZenXplor builds a semantic bridge between your PC, your Google Drive, and your Outlook attachments.</p>
+              </div>
+              <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-primary/10 to-transparent pointer-events-none group-hover:from-primary/20 transition-all"></div>
+            </div>
+            
+            {/* Row 3 */}
+            <div className="bg-surface-container-low rounded-xl p-8">
+              <span className="material-symbols-outlined text-4xl text-primary mb-6">shield</span>
+              <h3 className="text-xl font-bold mb-3 text-white">Privacy focus</h3>
+              <p className="text-on-surface-variant text-sm">End-to-end encryption. Your metadata stays on your device. We never see your files.</p>
+            </div>
+            
+            <div className="md:col-span-2 bg-surface-container-high rounded-xl p-8 flex items-center justify-between">
+              <div className="max-w-xs">
+                <h3 className="text-xl font-bold mb-3 text-white">Multi-account support</h3>
+                <p className="text-on-surface-variant text-sm">Switch between work, personal, and side-hustle accounts seamlessly without logging out.</p>
+              </div>
+              <div className="flex -space-x-4">
+                <div className="w-12 h-12 rounded-full border-4 border-surface-container-high bg-slate-700 flex items-center justify-center font-bold text-white">JD</div>
+                <div className="w-12 h-12 rounded-full border-4 border-surface-container-high bg-primary/40 flex items-center justify-center font-bold text-white">ZB</div>
+                <div className="w-12 h-12 rounded-full border-4 border-surface-container-high bg-indigo-900 flex items-center justify-center font-bold text-white">+3</div>
               </div>
             </div>
           </div>
-        </motion.div>
-      </section>
+        </section>
 
-      {/* Features section with modern card design */}
-      <section id="features" className="w-full py-24 relative overflow-hidden">
-        {/* Subtle background pattern */}
-        <div className="absolute inset-0 opacity-5 dark:opacity-10">
-          <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <defs>
-              <pattern id="grid" width="8" height="8" patternUnits="userSpaceOnUse">
-                <path d="M 8 0 L 0 0 0 8" fill="none" stroke="currentColor" strokeWidth="0.5" opacity="0.4" />
-              </pattern>
-            </defs>
-            <rect x="0" y="0" width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-        </div>
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-            className="text-center mb-16"
-          >
-            <h2 className="inline-block text-sm font-semibold py-1 px-4 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 mb-4">
-              POWERFUL FEATURES
-            </h2>
-            <h3 className="text-3xl md:text-5xl font-bold text-gray-900 dark:text-white mb-6">
-              Everything you need for <br className="hidden sm:block" /> 
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 dark:from-blue-400 dark:via-indigo-400 dark:to-violet-400">
-                effortless file searching
-              </span>
-            </h3>
-            <p className="max-w-2xl mx-auto text-lg text-gray-600 dark:text-gray-400">
-              Our platform combines powerful technology with an intuitive interface to deliver the best file finding experience.
-            </p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {features.map((feature, idx) => (
-              <motion.div
-                key={idx}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: idx * 0.1 }}
-                whileHover={{ y: -8, scale: 1.02 }}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg hover:shadow-xl p-6 border border-gray-100 dark:border-gray-700 group transition duration-300 overflow-hidden relative"
-              >
-                {/* Background gradient effect */}
-                <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl ${feature.color} rounded-full opacity-5 -mr-10 -mt-10 group-hover:opacity-10 transition-opacity duration-300`}></div>
-                
-                <div className={`w-14 h-14 flex items-center justify-center text-white rounded-xl mb-5 bg-gradient-to-br ${feature.color} shadow-md transition duration-300 group-hover:scale-110 group-hover:rotate-3`}>
-                  {feature.icon}
-                </div>
-                
-                <h3 className="text-xl font-bold mb-3 text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition duration-300">
-                  {feature.title}
-                </h3>
-                
-                <p className="text-gray-600 dark:text-gray-300">
-                  {feature.desc}
-                </p>
-                
-
-              </motion.div>
-            ))}
+        {/* How it Works */}
+        <section className="max-w-7xl mx-auto px-8 mb-32">
+          <div className="text-center mb-20">
+            <h2 className="text-4xl font-bold mb-4 text-white">Architected for Speed</h2>
+            <p className="text-on-surface-variant">Three steps to a cleaner workflow.</p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-16 relative">
+            <div className="relative">
+              <span className="absolute -top-12 -left-4 text-9xl font-black text-white/5 pointer-events-none">01</span>
+              <h4 className="text-xl font-bold mb-4 relative text-white">Connect Sources</h4>
+              <p className="text-on-surface-variant leading-relaxed">Securely authorize your drives and local folders. ZenXplor begins mapping your data architecture in the background.</p>
+            </div>
+            <div className="relative">
+              <span className="absolute -top-12 -left-4 text-9xl font-black text-white/5 pointer-events-none">02</span>
+              <h4 className="text-xl font-bold mb-4 relative text-white">Semantic Indexing</h4>
+              <p className="text-on-surface-variant leading-relaxed">Our engine builds an index database. It doesn't just store names; it understands context and file relationships.</p>
+            </div>
+            <div className="relative">
+              <span className="absolute -top-12 -left-4 text-9xl font-black text-white/5 pointer-events-none">03</span>
+              <h4 className="text-xl font-bold mb-4 relative text-white">Search Anywhere</h4>
+              <p className="text-on-surface-variant leading-relaxed">Hit `Cmd + K` from any application. Type anything. Find exactly what you need in under 50 milliseconds.</p>
+            </div>
           </div>
           
-          {/* Extra call-to-action at the bottom of features */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-            className="mt-16 text-center"
-          >
-            <Link
-              to="/login"
-              className="inline-flex items-center px-6 py-3 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 font-medium rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
-            >
-              Explore all features
-              <ArrowRight className="ml-2 w-4 h-4" />
-            </Link>
-          </motion.div>
-        </div>
-      </section>
+          <div className="mt-24 bg-surface-container-low rounded-2xl p-4 shadow-2xl border border-white/5">
+            <div className="bg-surface-container-lowest rounded-xl overflow-hidden border border-white/5">
+              <div className="bg-surface-container-high px-4 py-2 flex items-center gap-2">
+                <div className="flex gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-red-500/50"></div>
+                  <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
+                  <div className="w-3 h-3 rounded-full bg-green-500/50"></div>
+                </div>
+                <div className="mx-auto text-[11px] font-mono opacity-40 text-white">ZENXPLOR_SEARCH_UI</div>
+              </div>
+              <img className="w-full aspect-video object-cover opacity-60" data-alt="sleek dashboard interface showing data visualizations and search results in a dark minimalist aesthetic with violet accents" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBzTvO42lZ-LDSp6M4ghpqRfz3SCizThnLxWYMo_IQdGeD_atuvXQ7jgZXUWT1mLY_Yq5aenPMhKnPWa1EIlxiuuQBCdzzDFFlJ7ZU5DcecsKZDSTTfrSEAkPEKBIzxISaCSwFiKYcxS7tAzs38RR24C9XRCNZxZMhKgFg39IKTXy79JCOKWiAn3WM-oI-sBP9SbEZ2OIwpmoGXjSVeV89kiIUrA-3cjootJs2k91HSsXVFDFE4K2WAx_BwQf9ViJbuetzEEsZt-3A" alt="Dashboard Mockup" />
+            </div>
+          </div>
+        </section>
+
+        {/* Pricing */}
+        <section className="max-w-7xl mx-auto px-8 mb-32">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold mb-6 text-white">Simple, Transparent Pricing</h2>
+            <div className="inline-flex items-center bg-surface-container-lowest p-1 rounded-lg ghost-border">
+              <button className="px-6 py-2 rounded-md bg-surface-container-high text-sm font-bold text-white">Monthly</button>
+              <button className="px-6 py-2 rounded-md text-sm font-bold opacity-40 text-white">Annual <span className="text-primary">-20%</span></button>
+            </div>
+          </div>
+          <div className="grid md:grid-cols-3 gap-8">
+            {/* Free */}
+            <div className="bg-surface-container-low p-10 rounded-xl flex flex-col">
+              <h3 className="text-xl font-bold mb-2 text-white">Free</h3>
+              <div className="mb-6"><span className="text-4xl font-black text-white">$0</span><span className="text-on-surface-variant text-sm">/mo</span></div>
+              <p className="text-on-surface-variant text-sm mb-8">Essential search for individuals getting started.</p>
+              <ul className="space-y-4 mb-12 flex-1">
+                <li className="flex items-center gap-3 text-sm opacity-80 text-white"><span className="material-symbols-outlined text-primary scale-75">check_circle</span> 2 Cloud Integrations</li>
+                <li className="flex items-center gap-3 text-sm opacity-80 text-white"><span className="material-symbols-outlined text-primary scale-75">check_circle</span> Local Disk Search</li>
+                <li className="flex items-center gap-3 text-sm opacity-80 text-white"><span className="material-symbols-outlined text-primary scale-75">check_circle</span> 1GB Metadata Index</li>
+              </ul>
+              <Link to="/login" className="ghost-border w-full py-3 rounded-lg font-bold hover:bg-surface-container-high transition-all text-center text-white">Get Started</Link>
+            </div>
+            
+            {/* Pro */}
+            <div className="bg-surface-container-low p-10 rounded-xl flex flex-col relative border-2 border-primary/40 shadow-[0_0_50px_rgba(135,129,255,0.1)]">
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 signature-glow text-on-primary-fixed text-[10px] font-black uppercase tracking-widest px-4 py-1 rounded-full">Most popular</div>
+              <h3 className="text-xl font-bold mb-2 text-white">Pro</h3>
+              <div className="mb-6"><span className="text-4xl font-black text-white">$12</span><span className="text-on-surface-variant text-sm">/mo</span></div>
+              <p className="text-on-surface-variant text-sm mb-8">Advanced search for power users and creators.</p>
+              <ul className="space-y-4 mb-12 flex-1">
+                <li className="flex items-center gap-3 text-sm text-white"><span className="material-symbols-outlined text-primary scale-75" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span> Unlimited Integrations</li>
+                <li className="flex items-center gap-3 text-sm text-white"><span className="material-symbols-outlined text-primary scale-75" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span> Priority Indexing</li>
+                <li className="flex items-center gap-3 text-sm text-white"><span className="material-symbols-outlined text-primary scale-75" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span> Advanced Filters</li>
+                <li className="flex items-center gap-3 text-sm text-white"><span className="material-symbols-outlined text-primary scale-75" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span> Multi-account Link</li>
+              </ul>
+              <button className="signature-glow text-on-primary-fixed w-full py-3 rounded-lg font-bold">Start Pro Trial</button>
+            </div>
+            
+            {/* Team */}
+            <div className="bg-surface-container-low p-10 rounded-xl flex flex-col">
+              <h3 className="text-xl font-bold mb-2 text-white">Team</h3>
+              <div className="mb-6"><span className="text-4xl font-black text-white">$49</span><span className="text-on-surface-variant text-sm">/mo</span></div>
+              <p className="text-on-surface-variant text-sm mb-8">Collaborative intelligence for small teams.</p>
+              <ul className="space-y-4 mb-12 flex-1">
+                <li className="flex items-center gap-3 text-sm opacity-80 text-white"><span className="material-symbols-outlined text-primary scale-75">check_circle</span> Up to 10 Members</li>
+                <li className="flex items-center gap-3 text-sm opacity-80 text-white"><span className="material-symbols-outlined text-primary scale-75">check_circle</span> Shared Knowledge Base</li>
+                <li className="flex items-center gap-3 text-sm opacity-80 text-white"><span className="material-symbols-outlined text-primary scale-75">check_circle</span> Admin Controls</li>
+              </ul>
+              <button className="ghost-border w-full py-3 rounded-lg font-bold hover:bg-surface-container-high transition-all text-white">Contact Sales</button>
+            </div>
+          </div>
+        </section>
+
+        {/* Final CTA */}
+        <section className="max-w-7xl mx-auto px-8 mb-32">
+          <div className="bg-[#6C63FF] rounded-3xl p-12 md:p-20 text-center relative overflow-hidden">
+            <div className="absolute inset-0 opacity-10">
+              <img className="w-full h-full object-cover" data-alt="abstract flowing 3d shapes and dynamic lines in a minimalist aesthetic" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCTbLi7fjB2phZV2ClJh17P0LccGMv5SK1DZ-M0_KZceLdmv7akhl-qxx0Vj0ZqPeCElJliqXvlfjVDLrt_HQTH9NodjBnFxm_2CV6_B6Z3DCLeGx-TNEUfPHr3mwzEvfbX6Ple82uOvc-CnU9ZEqJO2Us2e7xBJXedxtdsh7nrH1k4xDpwKJkN_FntzMgt2VdeUvx1me7nHebqRrRZQ5zPNsRny3BsF6Sj3a3iXhJPekPNokCO1lhmp_KT7ucUMzpVKE95lK5qu5A" alt="Abstract Background" />
+            </div>
+            <div className="relative z-10">
+              <h2 className="text-4xl md:text-6xl font-black text-white mb-8 tracking-tighter">Ready to never lose a file again?</h2>
+              <p className="text-indigo-100 text-lg mb-12 max-w-2xl mx-auto">Join professionals who trust ZenXplor to organize their digital life.</p>
+              <div className="flex flex-wrap justify-center gap-4">
+                <Link to="/login" className="bg-white text-[#6C63FF] px-10 py-5 rounded-xl font-black text-lg hover:bg-indigo-50 transition-colors shadow-xl">Get started free</Link>
+                <button className="bg-indigo-700/30 text-white border border-white/20 backdrop-blur-md px-10 py-5 rounded-xl font-black text-lg hover:bg-indigo-700/50 transition-colors">Book a demo</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
   );
 };
