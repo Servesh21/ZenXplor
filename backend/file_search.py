@@ -1051,7 +1051,7 @@ def search_files():
         try:
             with current_app.app_context():
                 session = scoped_session(sessionmaker(bind=db.engine))
-                filters = [IndexedFile.user_id == user_id, IndexedFile.is_folder == False]
+                filters = [IndexedFile.user_id == user_id, IndexedFile.is_folder == False, IndexedFile.last_accessed.isnot(None)]
                 
                 if service_filter:
                     if service_filter == "local":
@@ -1064,10 +1064,11 @@ def search_files():
                 # Recent activity is limited to a fixed set of the most recent items
                 RECENT_LIMIT = 24
                 recent_files = session.query(IndexedFile).filter(*filters)\
-                    .order_by(db.func.coalesce(IndexedFile.last_modified, IndexedFile.created_at).desc())\
+                    .order_by(IndexedFile.last_accessed.desc())\
                     .limit(RECENT_LIMIT).all()
                 
                 results = [{
+                    "id": f.id,
                     "filename": f.filename,
                     "filepath": f.filepath,
                     "storage_type": f.storage_type,
@@ -1453,6 +1454,29 @@ def toggle_favorite(file_path):
     db.session.commit()
 
     return jsonify({"message": "Favorite status updated", "file": file.to_dict()})
+
+
+@search_bp.route('/file/access', methods=['POST'])
+@jwt_required()
+def log_file_access():
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    
+    file = None
+    if data.get('filepath'):
+        file = IndexedFile.query.filter_by(filepath=data['filepath'], user_id=user_id).first()
+    elif data.get('cloud_file_id'):
+        file = IndexedFile.query.filter_by(cloud_file_id=data['cloud_file_id'], user_id=user_id).first()
+    elif data.get('id'):
+        file = IndexedFile.query.filter_by(id=data['id'], user_id=user_id).first()
+        
+    if not file:
+        return jsonify({"error": "File not found"}), 404
+        
+    file.last_accessed = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({"message": "Access logged"}), 200
 
 
 @search_bp.route('/storage/stats', methods=['GET'])

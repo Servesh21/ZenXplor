@@ -128,7 +128,22 @@ const FileSearch: React.FC = () => {
     return () => clearTimeout(delaySearch);
   }, [query, serviceFilter, fileTypeFilter]);
 
-  const handleDownload = async (filepath: string, filename: string) => {
+  const handleFileAccess = async (file: any) => {
+    if (!file) return;
+    try {
+      await axios.post(`${BACKEND_URL}/search/file/access`, {
+        id: file.id,
+        filepath: file.filepath,
+        cloud_file_id: file.cloud_file_id
+      }, { withCredentials: true });
+    } catch (error) {
+      console.error("Failed to log file access", error);
+    }
+  };
+
+  const handleDownload = async (file: any) => {
+    handleFileAccess(file);
+    const { filepath, filename } = file;
     if (!filepath.startsWith("upload://") && !filepath.startsWith("http")) {
       if (!agentRunning) {
         showToastNotification("ZenXplor Desktop Agent is not running. Cannot download local files.");
@@ -170,7 +185,9 @@ const FileSearch: React.FC = () => {
     }
   };
 
-  const handleOpenFileLocation = async (filepath: string) => {
+  const handleOpenFileLocation = async (file: any) => {
+    handleFileAccess(file);
+    const { filepath } = file;
     if (!filepath.startsWith("upload://") && !filepath.startsWith("http")) {
       if (!agentRunning) {
         showToastNotification("ZenXplor Desktop Agent is not running. Cannot open local files.");
@@ -487,7 +504,7 @@ const FileSearch: React.FC = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDownload(file.filepath!, file.filename);
+                              handleDownload(file);
                             }}
                             className="p-1.5 rounded bg-primary/10 text-primary hover:bg-primary hover:text-white transition-colors border border-primary/20"
                             title="Download"
@@ -497,7 +514,7 @@ const FileSearch: React.FC = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleOpenFileLocation(file.filepath!);
+                              handleOpenFileLocation(file);
                             }}
                             className="p-1.5 rounded bg-primary/10 text-primary hover:bg-primary hover:text-white transition-colors border border-primary/20"
                             title="Open Location"
@@ -517,7 +534,10 @@ const FileSearch: React.FC = () => {
                           rel="noopener noreferrer"
                           className="p-1.5 rounded bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white transition-colors border border-indigo-500/20"
                           title="Open Cloud Link"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleFileAccess(file);
+                          }}
                         >
                           <span className="material-symbols-outlined text-[16px]">open_in_new</span>
                         </a>

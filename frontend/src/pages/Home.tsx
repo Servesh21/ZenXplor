@@ -29,6 +29,7 @@ interface AllStats {
 }
 
 interface RecentFile {
+  cloud_file_id: any;
   id: number;
   filename: string;
   filepath?: string;
@@ -69,7 +70,7 @@ const Home: React.FC = () => {
         setStats(statsRes.data);
 
         // Fetch Recent Activity
-        const recentRes = await axios.get(`${BACKEND_URL}/search?q=&limit=6`, {
+        const recentRes = await axios.get(`${BACKEND_URL}/search/search-files?q=&limit=6`, {
           withCredentials: true,
         });
         setRecentFiles(recentRes.data.results || []);
@@ -255,7 +256,16 @@ const Home: React.FC = () => {
               recentFiles.map(file => (
                 <div 
                   key={file.id} 
-                  onClick={() => navigate('/file-search')}
+                  onClick={async () => {
+                    try {
+                      await axios.post(`${BACKEND_URL}/search/file/access`, {
+                        id: file.id,
+                        filepath: file.filepath,
+                        cloud_file_id: file.cloud_file_id
+                      }, { withCredentials: true });
+                    } catch (e) {}
+                    navigate(`/file-search?q=${encodeURIComponent(file.filename)}`);
+                  }}
                   className="flex-shrink-0 w-48 bg-surface-container-lowest border border-outline-variant/15 rounded-xl p-4 hover:bg-surface-container-high transition-all cursor-pointer group"
                 >
                   <div className="w-12 h-12 mb-4 bg-surface-container-high rounded flex items-center justify-center group-hover:scale-110 transition-transform">
