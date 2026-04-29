@@ -21,7 +21,7 @@ const PublicRoute: React.FC<PublicRouteProps> = ({ children }) => {
   }
 
   if (isAuthenticated) {
-    return <Navigate to="/storage-overview" replace />;
+    return <Navigate to="/file-search" replace />;
   }
 
   return <>{children}</>;

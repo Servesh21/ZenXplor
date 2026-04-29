@@ -1046,12 +1046,13 @@ def search_files():
     service_filter = request.args.get("service", "").lower()
     filetype_filter = request.args.get("filetype", "").lower()
 
-    # If query is empty, we just return recent files sorted by last_modified/id
+    # If query is empty, we just return recent activity: files only, sorted by modification
     if not query:
         try:
             with current_app.app_context():
                 session = scoped_session(sessionmaker(bind=db.engine))
-                filters = [IndexedFile.user_id == user_id]
+                filters = [IndexedFile.user_id == user_id, IndexedFile.is_folder == False]
+                
                 if service_filter:
                     if service_filter == "local":
                         filters.append(or_(IndexedFile.storage_type == "local", IndexedFile.storage_type == "local_upload"))
@@ -1060,7 +1061,12 @@ def search_files():
                 if filetype_filter:
                     filters.append(IndexedFile.filetype == filetype_filter)
 
-                recent_files = session.query(IndexedFile).filter(*filters).order_by(IndexedFile.id.desc()).limit(limit).offset(offset).all()
+                # Recent activity is limited to a fixed set of the most recent items
+                RECENT_LIMIT = 24
+                recent_files = session.query(IndexedFile).filter(*filters)\
+                    .order_by(db.func.coalesce(IndexedFile.last_modified, IndexedFile.created_at).desc())\
+                    .limit(RECENT_LIMIT).all()
+                
                 results = [{
                     "filename": f.filename,
                     "filepath": f.filepath,
@@ -1069,14 +1075,14 @@ def search_files():
                     "is_favorite": f.is_favorite
                 } for f in recent_files]
                 
-                total = session.query(IndexedFile).filter(*filters).count()
-                has_more = (offset + limit) < total
                 session.remove()
                 
+                # For recent activity, we don't paginate past the fixed set
                 return jsonify({
                     "results": results,
-                    "has_more": has_more,
-                    "offset": offset + len(results)
+                    "total_results": len(results),
+                    "has_more": False,
+                    "offset": len(results)
                 }), 200
         except Exception as e:
             logging.error(f"Recent files fetch error: {e}")
@@ -1227,11 +1233,11 @@ def search_files():
     # 3️⃣ Pagination after merging
     total_results = len(all_results)
     paginated = all_results[offset:offset + limit]
-    print(f"Total results: {total_results}, Paginated results: {len(paginated)}")  # Debugging log
     has_more = offset + limit < total_results
 
     return jsonify({
         "results": paginated,
+        "total_results": total_results,
         "offset": offset + len(paginated),
         "limit": limit,
         "has_more": has_more

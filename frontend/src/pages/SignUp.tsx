@@ -19,7 +19,7 @@ const Auth: React.FC = () => {
   // Redirect if already logged in
   useEffect(() => {
     if (isAuthenticated) {
-      navigate("/storage-overview", { replace: true });
+      navigate("/file-search", { replace: true });
     }
   }, [isAuthenticated, navigate]);
 
@@ -70,7 +70,7 @@ const Auth: React.FC = () => {
         }
 
         setSuccess("Login successful!");
-        setTimeout(() => navigate("/storage-overview", { replace: true }), 800);
+        setTimeout(() => navigate("/file-search", { replace: true }), 800);
       } else {
         setError(data.error || "Invalid email or password.");
         setIsLoading(false);
@@ -123,7 +123,7 @@ const Auth: React.FC = () => {
           });
 
         setSuccess("Signup successful! Logging you in...");
-        setTimeout(() => navigate("/storage-overview", { replace: true }), 1200);
+        setTimeout(() => navigate("/file-search", { replace: true }), 1200);
       } else {
         setError(data.error || "Signup failed.");
         setIsLoading(false);

@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
 import os
 import threading
+from datetime import timedelta
 
 from auth import auth_bp
 from extensions import db
@@ -26,6 +27,7 @@ app.config.from_object(Config)
 # ── Also wire the JWT secret from the Config SECRET_KEY ───────────────────────
 app.secret_key = app.config["SECRET_KEY"]
 app.config["JWT_SECRET_KEY"] = app.config["SECRET_KEY"]
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=30)
 
 # ── JWT cookie settings ───────────────────────────────────────────────────────
 app.config["JWT_TOKEN_LOCATION"] = ["cookies"]

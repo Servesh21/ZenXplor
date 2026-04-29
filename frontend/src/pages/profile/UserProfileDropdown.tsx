@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { Link } from "react-router-dom";
 
 interface User {
   username: string;
@@ -66,22 +67,22 @@ const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({ user, handleL
 
           {/* Actions */}
           <div className="p-2">
-            <a
-              href="/settings"
+            <Link
+              to="/settings"
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"
               onClick={() => setIsOpen(false)}
             >
               <span className="material-symbols-outlined text-[18px]">settings</span>
               Settings
-            </a>
-            <a
-              href="/storage-overview"
+            </Link>
+            <Link
+              to="/storage-overview"
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"
               onClick={() => setIsOpen(false)}
             >
               <span className="material-symbols-outlined text-[18px]">sync_alt</span>
               Integrations
-            </a>
+            </Link>
             <div className="my-1 border-t border-outline-variant/10"></div>
             <button
               onClick={() => {
