@@ -2,10 +2,7 @@ import { BACKEND_URL, AGENT_URL } from "../api";
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import {
-  FaSync,
-  FaFileAlt, FaFilePdf, FaFileWord,
-  FaFileImage, FaFolder, FaCloud,
-  FaRegStar, FaStar, FaTimes,
+  FaSync, FaTimes,
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import DashboardLayout from "../components/DashboardLayout";
@@ -48,7 +45,6 @@ const FileSearch: React.FC = () => {
 
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
-  const [searchFocused, setSearchFocused] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
@@ -382,8 +378,9 @@ const FileSearch: React.FC = () => {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (_e: React.KeyboardEvent) => {
     // Local keydown handler can still exist but global one takes precedence
+    
   };
 
   return (
@@ -403,8 +400,6 @@ const FileSearch: React.FC = () => {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onFocus={() => setSearchFocused(true)}
-              onBlur={() => setSearchFocused(false)}
             />
             {query && (
               <button
