@@ -129,3 +129,15 @@ class CloudStorageAccount(db.Model):
             "permissions": self.permissions.split(",") if self.permissions else [],
             "lastSynced": self.last_synced.isoformat() if self.last_synced else None
         }
+class SearchHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    query = db.Column(db.String(500), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "query": self.query,
+            "timestamp": self.timestamp.isoformat()
+        }

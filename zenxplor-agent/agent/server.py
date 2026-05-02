@@ -217,6 +217,31 @@ def download_file() -> Any:
         as_attachment=True,
     )
 
+@app.route("/preview", methods=["GET"])
+def preview_file() -> Any:
+    if not _is_localhost():
+        return jsonify({"error": "Forbidden"}), 403
+
+    raw = request.args.get("filepath", "").strip()
+    if not raw:
+        return jsonify({"error": "filepath parameter is required"}), 400
+        
+    safe_path = _get_safe_path(raw)
+    if safe_path is None:
+        return jsonify({"error": "Access denied or file not found"}), 403
+    if not os.path.isfile(safe_path):
+        return jsonify({"error": "Not a file"}), 400
+
+    # Serve the file directly if it is an image, otherwise return 415
+    ext = os.path.splitext(safe_path)[1].lower()
+    if ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]:
+        return send_from_directory(
+            os.path.dirname(safe_path),
+            os.path.basename(safe_path),
+            as_attachment=False,
+        )
+    return jsonify({"error": "Preview not supported for this file type"}), 415
+
 
 @app.route("/scan", methods=["POST"])
 def trigger_scan() -> Any:

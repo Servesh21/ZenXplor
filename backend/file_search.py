@@ -591,7 +591,18 @@ def sync_google_drive(account_id, user_id):
     with current_app.app_context():
         session = scoped_session(sessionmaker(bind=db.engine))
 
-        creds = Credentials(token=access_token)
+        account = session.get(CloudStorageAccount, account_id)
+        if not account:
+            logging.error(f"Account {account_id} not found during sync")
+            return
+
+        creds = Credentials(
+            token=account.access_token,
+            refresh_token=account.refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=os.getenv("CLIENT_ID"),
+            client_secret=os.getenv("CLIENT_SECRET")
+        )
         service = build("drive", "v3", credentials=creds)
 
         try:
@@ -667,7 +678,18 @@ def sync_gmail_attachments(account_id, user_id):
         return
     with current_app.app_context():
         session = scoped_session(sessionmaker(bind=db.engine))
-        creds = Credentials(token=access_token)
+        account = session.get(CloudStorageAccount, account_id)
+        if not account:
+            logging.error(f"Account {account_id} not found during Gmail sync")
+            return
+
+        creds = Credentials(
+            token=account.access_token,
+            refresh_token=account.refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=os.getenv("CLIENT_ID"),
+            client_secret=os.getenv("CLIENT_SECRET")
+        )
         service = build("gmail", "v1", credentials=creds)
 
         try:
@@ -719,8 +741,18 @@ def sync_google_photos(account_id, user_id):
 
     with current_app.app_context():
         session = scoped_session(sessionmaker(bind=db.engine))
-        creds = Credentials(token=access_token)
+        account = session.get(CloudStorageAccount, account_id)
+        if not account:
+            logging.error(f"Account {account_id} not found during Google Photos sync")
+            return
 
+        creds = Credentials(
+            token=account.access_token,
+            refresh_token=account.refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=os.getenv("CLIENT_ID"),
+            client_secret=os.getenv("CLIENT_SECRET")
+        )
 
         photos_api_discovery_url = "https://photoslibrary.googleapis.com/$discovery/rest?version=v1"
         service = build("photoslibrary", "v1", credentials=creds, discoveryServiceUrl=photos_api_discovery_url)
@@ -1046,6 +1078,27 @@ def search_files():
     service_filter = request.args.get("service", "").lower()
     filetype_filter = request.args.get("filetype", "").lower()
 
+    # Record search query
+    if query and offset == 0: # Only record the first page of search
+        try:
+            from models import SearchHistory
+            # Check if this query was recently added (last 1 minute) to avoid duplicates from re-renders
+            recent_exists = SearchHistory.query.filter_by(user_id=user_id, query=query).order_by(SearchHistory.timestamp.desc()).first()
+            
+            should_add = True
+            if recent_exists:
+                time_diff = datetime.utcnow() - recent_exists.timestamp
+                if time_diff.total_seconds() < 60:
+                    should_add = False
+            
+            if should_add:
+                new_search = SearchHistory(user_id=user_id, query=query)
+                db.session.add(new_search)
+                db.session.commit()
+        except Exception as e:
+            logging.error(f"Failed to record search query: {e}")
+            db.session.rollback()
+
     # If query is empty, we just return recent activity: files only, sorted by modification
     if not query:
         try:
@@ -1251,19 +1304,24 @@ def open_file():
     """Open file location in File Explorer, Finder, or File Manager, or return cloud file URLs."""
     user_id = get_jwt_identity()
     data = request.get_json()
+    file_id = data.get("id")
     file_path = data.get("filepath")
 
     # 🔍 Debugging Logs
-    print(f"User {user_id} is requesting to open: {file_path}")
+    print(f"User {user_id} is requesting to open: id={file_id}, path={file_path}")
 
-    if not file_path:
-        return jsonify({"error": "File path is required"}), 400
+    if not file_id and not file_path:
+        return jsonify({"error": "File ID or path is required"}), 400
 
     # Check if the file is indexed and belongs to the authenticated user
-    file_record = IndexedFile.query.filter_by(filepath=file_path, user_id=user_id).first()
+    if file_id:
+        file_record = IndexedFile.query.filter_by(id=file_id, user_id=user_id).first()
+    else:
+        file_record = IndexedFile.query.filter_by(filepath=file_path, user_id=user_id).first()
+        
     if not file_record:
-        print("❌ Unauthorized access attempt")  # Debugging log
-        return jsonify({"error": "Unauthorized access"}), 403
+        print("❌ Unauthorized access attempt or file not found")  # Debugging log
+        return jsonify({"error": "File not found or unauthorized access"}), 403
 
     storage_type = file_record.storage_type  # "local", "google_drive", "dropbox"
     cloud_file_id = file_record.cloud_file_id  # Used for Google Drive & Dropbox
@@ -1276,18 +1334,34 @@ def open_file():
             if not cloud_file_id:
                 return jsonify({"error": "Cloud file ID missing"}), 400
 
-            drive_url = f"https://drive.google.com/uc?id={cloud_file_id}"
+            drive_url = f"https://drive.google.com/file/d/{cloud_file_id}/view?usp=drivesdk"
             return jsonify({"url": drive_url})
 
         elif storage_type == "dropbox":
-            if not cloud_file_id:
-                return jsonify({"error": "Cloud file ID missing"}), 400
-
-            # Dropbox file link (ensure path formatting is correct)
-            file = file_record.filename  
-            dropbox_url = f"https://www.dropbox.com/home/{cloud_file_id}?preview={file}"
-
-            return jsonify({"url": dropbox_url})
+            # Use Dropbox preview link or create a shared link
+            account = CloudStorageAccount.query.filter_by(user_id=user_id, provider="Dropbox").first()
+            if not account or not account.access_token:
+                return jsonify({"error": "No linked Dropbox account"}), 400
+            
+            try:
+                dbx = dropbox.Dropbox(account.access_token)
+                db_path = file_record.filepath.replace("dropbox://", "")
+                
+                # Try to get existing shared link first to avoid creating many links
+                shared_links = dbx.sharing_list_shared_links(path=db_path, direct_only=True).links
+                if shared_links:
+                    dropbox_url = shared_links[0].url
+                else:
+                    # Create a new shared link
+                    res = dbx.sharing_create_shared_link_with_settings(db_path)
+                    dropbox_url = res.url
+                
+                return jsonify({"url": dropbox_url})
+            except Exception as e:
+                # Fallback to simple preview URL if sharing fails
+                db_path = file_record.filepath.replace("dropbox://", "")
+                dropbox_url = f"https://www.dropbox.com/preview{db_path}"
+                return jsonify({"url": dropbox_url})
 
         else:
             return jsonify({"error": "Unsupported storage type"}), 400
@@ -1388,50 +1462,121 @@ def sync_dropbox_account():
 def download_file():
     """Allow authenticated users to download a file, including Google Drive files."""
     user_id = get_jwt_identity()
+    file_id = flask_request.args.get("id")
     file_path = flask_request.args.get("filepath")
 
-    if not file_path:
-        return jsonify({"error": "Invalid file path"}), 400
+    if not file_id and not file_path:
+        return jsonify({"error": "File ID or path is required"}), 400
 
-    file_record = IndexedFile.query.filter_by(filepath=file_path, user_id=user_id).first()
+    if file_id:
+        file_record = IndexedFile.query.filter_by(id=file_id, user_id=user_id).first()
+    else:
+        file_record = IndexedFile.query.filter_by(filepath=file_path, user_id=user_id).first()
+
     if not file_record:
-        return jsonify({"error": "Unauthorized access"}), 403
+        return jsonify({"error": "File not found or unauthorized access"}), 403
 
     # If the file is a local file, return it
-    if file_record.storage_type != "google_drive":
+    if file_record.storage_type in ["local", "local_upload"]:
         if not os.path.exists(file_path):
             return jsonify({"error": "File not found"}), 404
         return send_file(file_path, as_attachment=True)
 
+    # For Dropbox
+    if file_record.storage_type == "dropbox":
+        account = None
+        if file_record.account_id:
+            account = CloudStorageAccount.query.get(file_record.account_id)
+        if not account:
+            account = CloudStorageAccount.query.filter_by(user_id=user_id, provider="Dropbox").first()
+            
+        if not account or not account.access_token:
+            return jsonify({"error": "No linked Dropbox account"}), 400
+        
+        try:
+            dbx = dropbox.Dropbox(account.access_token)
+            db_path = file_record.filepath.replace("dropbox://", "")
+            metadata, res = dbx.files_download(db_path)
+            file_stream = io.BytesIO(res.content)
+            return send_file(
+                file_stream,
+                as_attachment=True,
+                download_name=file_record.filename,
+                mimetype=file_record.mime_type or "application/octet-stream"
+            )
+        except Exception as e:
+            logging.error(f"Failed to download file from Dropbox: {str(e)}")
+            return jsonify({"error": f"Failed to download file from Dropbox: {str(e)}"}), 500
+
     # For Google Drive files, download from Google Drive
-    account = CloudStorageAccount.query.filter_by(user_id=user_id, provider="Google Drive").first()
-    if not account:
-        return jsonify({"error": "No linked Google Drive account"}), 400
+    if file_record.storage_type == "google_drive":
+        account = None
+        if file_record.account_id:
+            account = CloudStorageAccount.query.get(file_record.account_id)
+        if not account:
+            account = CloudStorageAccount.query.filter_by(user_id=user_id, provider="Google Drive").first()
 
-    access_token = account.access_token
-    if not access_token:
-        return jsonify({"error": "Invalid Google Drive access token"}), 400
+        if not account:
+            return jsonify({"error": "No linked Google Drive account"}), 400
 
-    drive_service = build("drive", "v3", credentials=Credentials(token=access_token))
-    file_id = file_record.cloud_file_id
-
-    try:
-        drive_request = drive_service.files().get_media(fileId=file_id)
-        file_stream = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_stream, drive_request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        file_stream.seek(0)
-        return send_file(
-            file_stream,
-            as_attachment=True,
-            download_name=file_record.filename,
-            mimetype=file_record.mime_type or "application/octet-stream"
+        creds = Credentials(
+            token=account.access_token,
+            refresh_token=account.refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=os.getenv("CLIENT_ID"),
+            client_secret=os.getenv("CLIENT_SECRET")
         )
-    except Exception as e:
-        logging.error(f"Failed to download file from Google Drive: {str(e)}")
-        return jsonify({"error": f"Failed to download file from Google Drive: {str(e)}"}), 500
+        drive_service = build("drive", "v3", credentials=creds)
+        file_id = file_record.cloud_file_id
+        mime_type = file_record.mime_type
+
+        try:
+            if mime_type and mime_type.startswith("application/vnd.google-apps."):
+                # Handle Google Docs, Sheets, etc. by exporting them
+                export_mime = "application/pdf"
+                if "document" in mime_type:
+                    export_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    ext = ".docx"
+                elif "spreadsheet" in mime_type:
+                    export_mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    ext = ".xlsx"
+                elif "presentation" in mime_type:
+                    export_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    ext = ".pptx"
+                else:
+                    ext = ".pdf"
+                
+                drive_request = drive_service.files().export_media(fileId=file_id, mimeType=export_mime)
+                download_name = file_record.filename
+                if not download_name.lower().endswith(ext):
+                    download_name += ext
+            else:
+                drive_request = drive_service.files().get_media(fileId=file_id)
+                download_name = file_record.filename
+
+            file_stream = io.BytesIO()
+            downloader = MediaIoBaseDownload(file_stream, drive_request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            file_stream.seek(0)
+            return send_file(
+                file_stream,
+                as_attachment=True,
+                download_name=download_name,
+                mimetype=mime_type or "application/octet-stream"
+            )
+        except Exception as e:
+            msg = str(e)
+            # Specifically check for permission errors (scope issues)
+            if "appNotAuthorizedToFile" in msg or "403" in msg:
+                return jsonify({
+                    "error": "Google Drive permission denied. Please re-connect your Google account in Settings and ensure you grant 'Full Drive' or 'Read-only' access to allow downloads.",
+                    "code": "permission_denied"
+                }), 403
+                
+            logging.error(f"Failed to download file from Google Drive: {msg}")
+            return jsonify({"error": f"Failed to download file from Google Drive: {msg}"}), 500
     
 
 
@@ -1455,6 +1600,29 @@ def toggle_favorite(file_path):
 
     return jsonify({"message": "Favorite status updated", "file": file.to_dict()})
 
+
+@search_bp.route('/recent-searches', methods=['GET'])
+@jwt_required()
+def get_recent_searches():
+    user_id = get_jwt_identity()
+    try:
+        from models import SearchHistory
+        # Get last 50 queries, then deduplicate in python
+        history = SearchHistory.query.filter_by(user_id=user_id).order_by(SearchHistory.timestamp.desc()).limit(50).all()
+        
+        seen = set()
+        unique_queries = []
+        for h in history:
+            if h.query not in seen:
+                unique_queries.append(h.query)
+                seen.add(h.query)
+            if len(unique_queries) >= 10: # Return top 10 unique recent searches
+                break
+                
+        return jsonify({"recent_searches": unique_queries}), 200
+    except Exception as e:
+        logging.error(f"Failed to fetch recent searches: {e}")
+        return jsonify({"error": "Failed to fetch recent searches"}), 500
 
 @search_bp.route('/file/access', methods=['POST'])
 @jwt_required()
@@ -1529,3 +1697,86 @@ def get_storage_stats():
     except Exception as e:
         logging.error(f"Error fetching storage stats: {e}")
         return jsonify({"error": "Failed to fetch storage stats"}), 500
+
+@search_bp.route('/file-details', methods=['GET'])
+@jwt_required()
+def get_file_details():
+    user_id = get_jwt_identity()
+    file_id = request.args.get('id')
+    filepath = request.args.get('filepath')
+
+    if not file_id and not filepath:
+        return jsonify({"error": "File ID or filepath is required"}), 400
+
+    query = IndexedFile.query.filter_by(user_id=user_id)
+    if file_id:
+        file = query.filter_by(id=file_id).first()
+    else:
+        file = query.filter_by(filepath=filepath).first()
+
+    if not file:
+        return jsonify({"error": "File not found"}), 404
+
+    details = file.to_dict()
+    details["owner"] = "Me"
+    details["size"] = "Unknown"
+    details["preview_url"] = None
+
+    try:
+        if file.storage_type == "google_drive" and file.cloud_file_id:
+            account = CloudStorageAccount.query.filter_by(user_id=user_id, provider="Google Drive").first()
+            if account and account.access_token:
+                creds = Credentials(
+                    token=account.access_token,
+                    refresh_token=account.refresh_token,
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=os.getenv("CLIENT_ID"),
+                    client_secret=os.getenv("CLIENT_SECRET")
+                )
+                drive_service = build("drive", "v3", credentials=creds)
+                file_info = drive_service.files().get(
+                    fileId=file.cloud_file_id, 
+                    fields="thumbnailLink, webContentLink, size, owners"
+                ).execute()
+                
+                details["preview_url"] = file_info.get("thumbnailLink")
+                if "size" in file_info:
+                    size_bytes = int(file_info['size'])
+                    if size_bytes > 1024 * 1024:
+                        details["size"] = f"{size_bytes / (1024 * 1024):.1f} MB"
+                    else:
+                        details["size"] = f"{size_bytes / 1024:.1f} KB"
+                if "owners" in file_info and file_info["owners"]:
+                    details["owner"] = file_info["owners"][0].get("displayName", "Me")
+
+        elif file.storage_type == "dropbox" and file.cloud_file_id:
+            account = CloudStorageAccount.query.filter_by(user_id=user_id, provider="Dropbox").first()
+            if account and account.access_token:
+                dbx = dropbox.Dropbox(account.access_token)
+                try:
+                    # The path in Dropbox API usually starts with /
+                    db_path = file.filepath.replace('dropbox://', '')
+                    res = dbx.files_get_temporary_link(db_path)
+                    details["preview_url"] = res.link
+                    
+                    meta = dbx.files_get_metadata(db_path)
+                    if hasattr(meta, 'size'):
+                        size_bytes = meta.size
+                        if size_bytes > 1024 * 1024:
+                            details["size"] = f"{size_bytes / (1024 * 1024):.1f} MB"
+                        else:
+                            details["size"] = f"{size_bytes / 1024:.1f} KB"
+                except Exception as e:
+                    logging.warning(f"Failed to get Dropbox preview: {e}")
+
+        elif file.storage_type in ["local", "local_upload"]:
+            details["preview_url"] = "local_agent_preview"
+            # Attempt to get local file size if it exists on server (local_upload), else leave Unknown
+            if file.storage_type == "local_upload" and file.filepath.startswith("upload://"):
+                # Can't easily get size without checking disk, leave as Unknown or fetch from DB if we had it
+                pass
+
+    except Exception as e:
+        logging.error(f"Error fetching file details for preview: {e}")
+
+    return jsonify(details), 200
