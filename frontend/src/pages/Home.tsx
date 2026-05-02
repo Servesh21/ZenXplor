@@ -39,6 +39,7 @@ const Home: React.FC = () => {
   const [agentRunning, setAgentRunning] = useState(false);
   const [stats, setStats] = useState<AllStats | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -73,6 +74,10 @@ const Home: React.FC = () => {
           withCredentials: true,
         });
         setRecentFiles(recentRes.data.results || []);
+
+        // Fetch Recent Searches
+        const searchRes = await axios.get(`${BACKEND_URL}/search/recent-searches`, { withCredentials: true });
+        setRecentSearches(searchRes.data.recent_searches || []);
       } catch (error) {
         console.error("Error fetching dashboard data", error);
       }
@@ -129,6 +134,22 @@ const Home: React.FC = () => {
               </kbd>
             </div>
           </form>
+
+          {recentSearches.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-4">
+              {recentSearches.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => navigate(`/file-search?q=${encodeURIComponent(s)}`)}
+                  className="px-3 py-1 rounded-full bg-surface-container-high/50 border border-outline-variant/10 text-[10px] text-on-surface-variant hover:border-primary/50 hover:bg-surface-container-highest transition-all flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[12px]">history</span>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Source Filters (Visual only on Home page) */}
           <div className="flex items-center gap-2 mt-6 overflow-x-auto pb-2 custom-scrollbar">
             <button className="px-4 py-1.5 rounded-full bg-primary-container text-on-primary-container text-[11px] font-medium uppercase tracking-[0.5px]">All sources</button>

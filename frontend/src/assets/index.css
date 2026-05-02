@@ -103,17 +103,17 @@ html, body, #root {
 }
 
 /* ─── Scrollbar ─── */
-.custom-scrollbar::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: 6px;
 }
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
+::-webkit-scrollbar-track {
+  background: #0d0e14;
 }
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(196, 192, 255, 0.15);
-  border-radius: 999px;
+::-webkit-scrollbar-thumb {
+  background: #34343b;
+  border-radius: 10px;
 }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: rgba(196, 192, 255, 0.3);
 }
 
