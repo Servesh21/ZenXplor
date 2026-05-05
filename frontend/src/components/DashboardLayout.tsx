@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { FaDesktop } from "react-icons/fa";
 import { useAuth } from "../context/AuthContext";
+import CommandPalette from "./CommandPalette";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -13,6 +14,19 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, agentRunnin
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+
+  // Global Ctrl+K / ⌘K shortcut
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -162,10 +176,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, agentRunnin
 
       {/* Top Bar (Desktop) */}
       <header className="hidden md:flex fixed top-0 right-0 w-[calc(100%-220px)] h-14 z-40 bg-surface/70 backdrop-blur-xl items-center justify-between px-8 border-b border-outline-variant/5">
-        <div className="flex items-center gap-4 text-slate-500">
-          <span className="material-symbols-outlined text-lg">search</span>
-          <span className="text-xs font-mono opacity-50 tracking-widest">CMD + K TO EXPLORE</span>
-        </div>
+        <button
+          onClick={() => setCmdPaletteOpen(true)}
+          className="flex items-center gap-4 text-slate-500 hover:text-slate-300 transition-colors group cursor-pointer bg-transparent border-none"
+        >
+          <span className="material-symbols-outlined text-lg group-hover:text-primary transition-colors">search</span>
+          <span className="text-xs font-mono opacity-50 tracking-widest group-hover:opacity-80 transition-opacity">⌘K TO EXPLORE</span>
+        </button>
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container-high/50 text-sm border border-outline-variant/10">
             <FaDesktop size={12} className="text-slate-400" />
@@ -182,6 +199,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, agentRunnin
           </div>
         </div>
       </header>
+
+      {/* Command Palette Modal */}
+      <CommandPalette isOpen={cmdPaletteOpen} onClose={() => setCmdPaletteOpen(false)} agentRunning={agentRunning} />
 
       {/* Main Content */}
       <main className="md:ml-[220px] pt-14 min-h-screen">{children}</main>

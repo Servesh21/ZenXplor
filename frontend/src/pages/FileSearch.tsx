@@ -137,19 +137,7 @@ const FileSearch: React.FC = () => {
     }
   };
 
-  // Global keyboard shortcut for search
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // Check for Ctrl+K or Cmd+K
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      }
-    };
-
-    window.addEventListener("keydown", handleGlobalKeyDown);
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, []);
+  // Ctrl+K / ⌘K is now handled globally by the CommandPalette in DashboardLayout
 
   // Fetch details when selection changes
   useEffect(() => {
