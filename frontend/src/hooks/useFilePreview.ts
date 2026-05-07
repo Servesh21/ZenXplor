@@ -95,6 +95,17 @@ async function buildLocalPreview(file: SearchResult, agentRunning: boolean): Pro
     }
   }
 
+  // PDF preview: use agent as a direct stream in iframe
+  if (ext === "pdf") {
+    const url = `${AGENT_URL}/download?filepath=${encodeURIComponent(file.filepath)}`;
+    return {
+      ...base,
+      preview_type: "pdf",
+      viewer_url: url,
+      download_url: url,
+    };
+  }
+
   // Fallback: try the backend preview endpoint (works when Flask is on same machine)
   try {
     const res = await axios.get(`${BACKEND_URL}/search/preview`, {
