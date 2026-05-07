@@ -34,7 +34,6 @@ function formatChipLabel(key: string, value: string): string {
     }
     case "sizeMin":
     case "sizeMax": {
-      
       const preset = SIZE_PRESETS.find(p => {
         if (!p.value) return false;
         const [min, max] = p.value.split("-");

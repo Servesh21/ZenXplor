@@ -1,28 +1,19 @@
-import os, io, logging
-import logging
-from googleapiclient.http import MediaIoBaseDownload
-import threading
-from flask import Blueprint, request, jsonify
+import os, io, logging, threading, time, psutil, urllib.parse
+from flask import Blueprint, request, jsonify, current_app, send_file, request as flask_request
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, IndexedFile
+from models import db, IndexedFile, CloudStorageAccount
 from elasticsearch import Elasticsearch, helpers
 from flask_cors import CORS
-from flask import current_app
-import time
-from flask import Blueprint, jsonify, send_file, current_app, request as flask_request
-from sqlalchemy.orm import scoped_session, sessionmaker
-from sqlalchemy import or_
+from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.discovery import build, build_from_document
 from google.oauth2.credentials import Credentials
 from datetime import datetime, timezone
 import dropbox
 from dropbox.exceptions import AuthError
+from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy import or_
 from sqlalchemy.dialects.postgresql import insert
 from werkzeug.utils import secure_filename
-
-import time
-from models import CloudStorageAccount
-import psutil
 
 # Elasticsearch Setup
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
@@ -1573,9 +1564,19 @@ def download_file():
 
     # If the file is a local file, return it
     if file_record.storage_type in ["local", "local_upload"]:
-        if not os.path.exists(file_path):
-            return jsonify({"error": "File not found"}), 404
-        return send_file(file_path, as_attachment=True)
+        # Handle local_upload paths mapping to the actual filesystem
+        actual_path = file_path
+        if file_record.storage_type == "local_upload" and file_path.startswith("upload://"):
+            # Path looks like upload://user_id/relative_path
+            # But the actual file should be in the uploads directory
+            # For now, we assume file_path is already set correctly or handled by the indexer
+            pass
+
+        if not os.path.exists(actual_path):
+            return jsonify({"error": f"File not found: {actual_path}"}), 404
+            
+        is_inline = flask_request.args.get("inline") == "1"
+        return send_file(actual_path, as_attachment=not is_inline)
 
     # For Dropbox
     if file_record.storage_type == "dropbox":
@@ -1750,10 +1751,13 @@ def preview_file():
 
     # --- PDF preview (local) ---
     if storage_type in ("local", "local_browser") and filetype == "pdf":
-        encoded_path = filepath.replace("\\", "/")
+        encoded_path = urllib.parse.quote(filepath)
+        # Point to our own download-file endpoint which will serve the PDF over HTTP
+        # Use inline=1 to ensure the browser displays it instead of downloading
+        viewer_url = f"{request.host_url.rstrip('/')}/search/download-file?filepath={encoded_path}&inline=1"
         return jsonify({
             "preview_type": "pdf",
-            "viewer_url": f"https://docs.google.com/viewer?url=file:///{encoded_path}&embedded=true",
+            "viewer_url": viewer_url,
             "download_url": f"/search/download-file?filepath={filepath}",
             "filename": filename,
             "filetype": filetype,
