@@ -347,7 +347,7 @@ const FileSearch: React.FC = () => {
   };
 
   const handleResultClick = (file: FileItem) => {
-    const fileKey = file.filepath || file.cloud_file_id || String(file.id);
+    
     const isAlreadySelected = selectedFile?.filepath === file.filepath;
     if (isAlreadySelected) {
       closePanel();
