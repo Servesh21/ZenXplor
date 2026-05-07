@@ -226,18 +226,32 @@ def index_new_files_only(user_id, app):
 
                     print(f"🆕 New file detected: {file_path}")  # Debugging log
 
+                    # Get file stats for size and modification time
+                    file_size = None
+                    file_mtime = None
+                    try:
+                        file_stat = os.stat(file_path)
+                        file_size = file_stat.st_size
+                        file_mtime = file_stat.st_mtime
+                    except OSError:
+                        pass
+
                     new_entries.append(IndexedFile(
                         user_id=user_id,
                         filename=file,
                         filepath=file_path,
-                        is_folder=False
+                        is_folder=False,
+                        filesize=file_size,
+                        last_modified=datetime.fromtimestamp(file_mtime, timezone.utc) if file_mtime else None
                     ))
                     indexed_items.append({
                         "id": f"{user_id}_{file_path}",
                         "user_id": user_id,
                         "filename": file,
                         "filepath": file_path,
-                        "is_folder": False
+                        "is_folder": False,
+                        "filesize": file_size,
+                        "last_modified": file_mtime
                     })
 
             # ✅ Commit new entries to DB
@@ -459,7 +473,9 @@ def index_files_worker(user_id, base_directory):
                     set_={
                         "filename": stmt.excluded.filename,
                         "filetype": stmt.excluded.filetype,
-                        "is_folder": stmt.excluded.is_folder
+                        "is_folder": stmt.excluded.is_folder,
+                        "filesize": stmt.excluded.filesize,
+                        "last_modified": stmt.excluded.last_modified
                     }
                 )
                 session.execute(stmt)
@@ -516,6 +532,16 @@ def index_files_worker(user_id, base_directory):
                     _, file_extension = os.path.splitext(file)
                     file_extension = file_extension.lower().strip('.')
 
+                    # Get file stats for size and modification time
+                    file_size = None
+                    file_mtime = None
+                    try:
+                        file_stat = os.stat(file_path)
+                        file_size = file_stat.st_size
+                        file_mtime = file_stat.st_mtime
+                    except OSError:
+                        pass
+
                     db_batch.append({
                         "user_id": user_id,
                         "filename": file,
@@ -523,7 +549,9 @@ def index_files_worker(user_id, base_directory):
                         "is_folder": False,
                         "filetype": file_extension,
                         "storage_type": "local",
-                        "is_favorite": False
+                        "is_favorite": False,
+                        "filesize": file_size,
+                        "last_modified": datetime.fromtimestamp(file_mtime, timezone.utc) if file_mtime else None
                     })
                     es_batch.append({
                         "id": file_path,
@@ -534,7 +562,9 @@ def index_files_worker(user_id, base_directory):
                         "is_folder": False,
                         "filetype": file_extension,
                         "storage_type": "local",
-                        "is_favorite": False
+                        "is_favorite": False,
+                        "filesize": file_size,
+                        "last_modified": file_mtime
                     })
 
                     # Flush if batch size reached
@@ -858,6 +888,7 @@ def sync_agent_files():
                 filetype=filetype,
                 storage_type="local",
                 is_favorite=False,
+                filesize=filesize,
                 last_modified=last_modified
             ).on_conflict_do_update(
                 index_elements=["filepath"],
@@ -865,6 +896,7 @@ def sync_agent_files():
                     "user_id": user_id,        # keep owner updated on resync
                     "filename": filename,
                     "filetype": filetype,
+                    "filesize": filesize,
                     "last_modified": last_modified,
                 }
             )
@@ -881,6 +913,8 @@ def sync_agent_files():
                 "filetype": filetype,
                 "storage_type": "local",
                 "is_favorite": False,
+                "filesize": filesize,
+                "last_modified": last_modified.isoformat() if last_modified else None
             })
 
         # Commit all records to PostgreSQL
@@ -1078,6 +1112,12 @@ def search_files():
     service_filter = request.args.get("service", "").lower()
     filetype_filter = request.args.get("filetype", "").lower()
 
+    # Smart filter params
+    modified_after  = request.args.get("modified_after", "").strip()
+    modified_before = request.args.get("modified_before", "").strip()
+    size_min        = request.args.get("size_min", type=int)
+    size_max        = request.args.get("size_max", type=int)
+
     # Record search query
     if query and offset == 0: # Only record the first page of search
         try:
@@ -1163,43 +1203,50 @@ def search_files():
             })
         else:
             should_clauses = [
+                # 1. Exact match or very close match (High boost)
                 {
                     "match": {
                         "filename": {
                             "query": query,
-                            "fuzziness": "AUTO"
+                            "boost": 10
                         }
                     }
                 },
+                # 2. Prefix match (Medium boost)
                 {
-                    "wildcard": {
+                    "prefix": {
                         "filename": {
-                            "value": f"{query}*",
-                            "case_insensitive": True
+                            "value": query.lower(),
+                            "boost": 5
                         }
                     }
                 },
+                # 3. N-gram / partial match
                 {
-                    "wildcard": {
-                        "filename": {
-                            "value": f"*{query}",
-                            "case_insensitive": True
+                    "match": {
+                        "filename_ngram": {
+                            "query": query,
+                            "boost": 2
                         }
                     }
                 },
+                # 4. Fuzzy match (Low boost, helps with typos but doesn't override exacts)
                 {
-                    "wildcard": {
+                    "match": {
                         "filename": {
-                            "value": f"*{query}*",
-                            "case_insensitive": True
+                            "query": query,
+                            "fuzziness": "AUTO",
+                            "boost": 1
                         }
                     }
                 },
+                # 5. Content match (Lowest boost)
                 {
                     "match": {
                         "file_content": {
                             "query": query,
-                            "fuzziness": "AUTO"
+                            "fuzziness": "AUTO",
+                            "boost": 0.5
                         }
                     }
                 }
@@ -1231,6 +1278,28 @@ def search_files():
         if filetype_filter:
             es_query["query"]["bool"]["filter"].append({
                 "term": {"filetype": filetype_filter}
+            })
+
+        # Date range filter
+        if modified_after or modified_before:
+            date_range = {}
+            if modified_after:
+                date_range["gte"] = modified_after
+            if modified_before:
+                date_range["lte"] = modified_before
+            es_query["query"]["bool"]["filter"].append({
+                "range": {"last_modified": date_range}
+            })
+
+        # File size filter
+        if size_min is not None or size_max is not None:
+            size_range = {}
+            if size_min is not None:
+                size_range["gte"] = size_min
+            if size_max is not None:
+                size_range["lte"] = size_max
+            es_query["query"]["bool"]["filter"].append({
+                "range": {"filesize": size_range}
             })
 
         es_results = es.search(index="file_index", body=es_query)
@@ -1266,6 +1335,28 @@ def search_files():
             if filetype_filter:
                 filters.append(IndexedFile.filetype == filetype_filter)
 
+            # Smart filters — date range
+            if modified_after:
+                try:
+                    dt = datetime.strptime(modified_after, "%Y-%m-%d")
+                    filters.append(IndexedFile.last_modified >= dt)
+                except ValueError:
+                    pass
+
+            if modified_before:
+                try:
+                    dt = datetime.strptime(modified_before, "%Y-%m-%d")
+                    filters.append(IndexedFile.last_modified <= dt)
+                except ValueError:
+                    pass
+
+            # Smart filters — file size
+            if size_min is not None:
+                filters.append(IndexedFile.filesize >= size_min)
+
+            if size_max is not None:
+                filters.append(IndexedFile.filesize <= size_max)
+
             db_files = session.query(IndexedFile).filter(*filters).all()
             session.remove()
 
@@ -1279,6 +1370,10 @@ def search_files():
                         "storage_type": file.storage_type,
                         "filepath": file.filepath,
                         "is_favorite": file.is_favorite,
+                        "filetype": file.filetype,
+                        "filesize": file.filesize,
+                        "last_modified": str(file.last_modified) if file.last_modified else None,
+                        "mime_type": file.mime_type,
                     })
                     seen_keys.add(key)
     except Exception as e:
@@ -1578,6 +1673,139 @@ def download_file():
             logging.error(f"Failed to download file from Google Drive: {msg}")
             return jsonify({"error": f"Failed to download file from Google Drive: {msg}"}), 500
     
+
+
+@search_bp.route("/preview", methods=["GET"])
+@jwt_required()
+def preview_file():
+    """
+    Return preview data for a file.
+    For images: return base64 encoded thumbnail (max 800px wide)
+    For text files: return first 5000 characters of content
+    For PDFs: return a Google Docs viewer URL
+    For cloud files: return the appropriate viewer/embed URL
+    For everything else: return metadata only with preview_type = "none"
+    """
+    user_id = get_jwt_identity()
+    filepath = request.args.get("filepath")
+
+    if not filepath:
+        return jsonify({"error": "filepath required"}), 400
+
+    file_record = IndexedFile.query.filter_by(
+        filepath=filepath, user_id=user_id
+    ).first()
+    if not file_record:
+        return jsonify({"error": "File not found"}), 404
+
+    storage_type = file_record.storage_type
+    filename = file_record.filename
+    filetype = (file_record.filetype or "").lower()
+
+    # --- Image preview (local files only) ---
+    IMAGE_TYPES = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"}
+    TEXT_TYPES  = {"txt", "md", "csv", "json", "xml", "yaml", "yml",
+                   "py", "js", "ts", "jsx", "tsx", "html", "css",
+                   "sh", "bat", "log", "env", "toml", "ini", "cfg"}
+
+    if storage_type in ("local", "local_browser") and filetype in IMAGE_TYPES:
+        try:
+            from PIL import Image
+            import base64
+            with Image.open(filepath) as img:
+                img.thumbnail((800, 800))
+                buf = io.BytesIO()
+                fmt = "PNG" if filetype == "png" else "JPEG"
+                img.save(buf, format=fmt)
+                b64 = base64.b64encode(buf.getvalue()).decode()
+                return jsonify({
+                    "preview_type": "image",
+                    "data": f"data:image/{filetype};base64,{b64}",
+                    "filename": filename,
+                    "filetype": filetype,
+                    "filesize": file_record.filesize,
+                    "last_modified": str(file_record.last_modified),
+                    "storage_type": storage_type,
+                })
+        except Exception as e:
+            logging.error(f"Image preview failed: {e}")
+            return jsonify({"preview_type": "none", "filename": filename})
+
+    # --- Text preview (local files only) ---
+    if storage_type in ("local", "local_browser") and filetype in TEXT_TYPES:
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read(5000)
+            return jsonify({
+                "preview_type": "text",
+                "content": content,
+                "filename": filename,
+                "filetype": filetype,
+                "filesize": file_record.filesize,
+                "last_modified": str(file_record.last_modified),
+                "storage_type": storage_type,
+            })
+        except Exception as e:
+            logging.error(f"Text preview failed: {e}")
+
+    # --- PDF preview (local) ---
+    if storage_type in ("local", "local_browser") and filetype == "pdf":
+        encoded_path = filepath.replace("\\", "/")
+        return jsonify({
+            "preview_type": "pdf",
+            "viewer_url": f"https://docs.google.com/viewer?url=file:///{encoded_path}&embedded=true",
+            "download_url": f"/search/download-file?filepath={filepath}",
+            "filename": filename,
+            "filetype": filetype,
+            "filesize": file_record.filesize,
+            "last_modified": str(file_record.last_modified),
+            "storage_type": storage_type,
+        })
+
+    # --- Google Drive ---
+    if storage_type == "google_drive" and file_record.cloud_file_id:
+        fid = file_record.cloud_file_id
+        viewer_url = f"https://drive.google.com/file/d/{fid}/preview"
+        return jsonify({
+            "preview_type": "iframe",
+            "viewer_url": viewer_url,
+            "filename": filename,
+            "filetype": filetype,
+            "storage_type": storage_type,
+            "last_modified": str(file_record.last_modified),
+        })
+
+    # --- Dropbox ---
+    if storage_type == "dropbox" and file_record.cloud_file_id:
+        return jsonify({
+            "preview_type": "iframe",
+            "viewer_url": f"https://www.dropbox.com/preview{file_record.filepath.replace('dropbox:/', '')}?role=personal",
+            "filename": filename,
+            "filetype": filetype,
+            "storage_type": storage_type,
+            "last_modified": str(file_record.last_modified),
+        })
+
+    # --- Gmail attachment ---
+    if storage_type == "gmail":
+        return jsonify({
+            "preview_type": "none",
+            "filename": filename,
+            "filetype": filetype,
+            "storage_type": storage_type,
+            "last_modified": str(file_record.last_modified),
+            "message": "Open in Gmail to preview this attachment.",
+        })
+
+    # --- Fallback ---
+    return jsonify({
+        "preview_type": "none",
+        "filename": filename,
+        "filetype": filetype,
+        "filesize": getattr(file_record, "filesize", None),
+        "last_modified": str(file_record.last_modified),
+        "storage_type": storage_type,
+    })
 
 
 @search_bp.route('/<string:file_path>/favorite', methods=['POST'])

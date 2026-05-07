@@ -86,6 +86,7 @@ class IndexedFile(db.Model):
     storage_type = db.Column(db.String(20), nullable=False, default="local")  # "local", "google_drive", etc.
     cloud_file_id = db.Column(db.String(1024), nullable=True, unique=True)  # Google Drive file ID, etc.
     mime_type = db.Column(db.String(1024), nullable=True)  # For cloud storage files
+    filesize = db.Column(db.BigInteger, nullable=True)  # File size in bytes
     last_modified = db.Column(db.DateTime, nullable=True)  # Last modified timestamp (for cloud files)
     last_accessed = db.Column(db.DateTime, nullable=True)  # Tracker for Recently Accessed
 
@@ -105,9 +106,10 @@ class IndexedFile(db.Model):
         "storage_type": self.storage_type,
         "cloud_file_id": self.cloud_file_id,
         "mime_type": self.mime_type,
+        "filesize": self.filesize,
         "last_modified": self.last_modified.strftime("%B %d, %Y") if self.last_modified else None,
         "created_at": self.created_at.strftime("%B %d, %Y"),
-        "is_favorite": self.is_favorite  # New field
+        "is_favorite": self.is_favorite
         }
 
 

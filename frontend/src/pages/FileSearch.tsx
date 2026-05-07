@@ -7,6 +7,10 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import DashboardLayout from "../components/DashboardLayout";
 import AgentDownloadModal from "../components/AgentDownloadModal";
+import FilePreviewPanel from "../components/FilePreviewPanel";
+import SmartFilters from "../components/SmartFilters";
+import { useFilePreview, SearchResult } from "../hooks/useFilePreview";
+import { useSmartFilters } from "../hooks/useSmartFilters";
 
 interface FileItem {
   id: number;
@@ -16,7 +20,9 @@ interface FileItem {
   cloud_file_id?: string;
   is_favorite: boolean;
   filetype?: string;
+  filesize?: number;
   last_modified?: string;
+  mime_type?: string;
 }
 
 /** Stable numeric ID derived from a file path (for agent results). */
@@ -36,12 +42,6 @@ const FileSearch: React.FC = () => {
   const [indexingStatus, setIndexingStatus] = useState("not_started");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [serviceFilter, setServiceFilter] = useState<string>("");
-  const [fileTypeFilter, setFileTypeFilter] = useState<string>("");
-
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-  const [selectedFileDetails, setSelectedFileDetails] = useState<any>(null);
-  const [loadingDetails, setLoadingDetails] = useState(false);
 
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
@@ -51,6 +51,18 @@ const FileSearch: React.FC = () => {
   // Windows Desktop Agent state
   const [agentRunning, setAgentRunning] = useState(false);
   const [agentScanning, setAgentScanning] = useState(false);
+
+  // Smart Filters hook (replaces separate serviceFilter/fileTypeFilter)
+  const {
+    filters, updateFilter, resetFilters: resetSmartFilters,
+    hasActiveFilters, activeFilterCount, toQueryParams,
+  } = useSmartFilters();
+
+  // File Preview hook (replaces selectedFilePath/selectedFileDetails/loadingDetails)
+  const {
+    selectedFile, previewData, loading: previewLoading,
+    error: previewError, selectFile, closePanel,
+  } = useFilePreview(agentRunning);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const fileListRef = useRef<HTMLDivElement>(null);
@@ -85,13 +97,15 @@ const FileSearch: React.FC = () => {
     fetchRecentSearches();
   }, []);
 
-  // Fetch search results with filters
+  // Fetch search results with smart filters
   const fetchFiles = async (newQuery = query, page = 1) => {
     setLoading(true);
     const offset = (page - 1) * LIMIT;
     try {
+      // Merge smart filter params with base params
+      const filterParams = toQueryParams();
       const response = await axios.get(`${BACKEND_URL}/search/search-files`, {
-        params: { q: newQuery, offset, limit: LIMIT, service: serviceFilter, filetype: fileTypeFilter },
+        params: { q: newQuery, offset, limit: LIMIT, ...filterParams },
         withCredentials: true,
       });
       
@@ -100,11 +114,11 @@ const FileSearch: React.FC = () => {
       setTotalPages(Math.ceil(totalResults / LIMIT) || 1);
 
       // Augment with agent-indexed local results ONLY on page 1 for now
-      if (page === 1 && agentRunning && newQuery.trim() &&
-        (!serviceFilter || serviceFilter === "local")) {
+      if (page === 1 && agentRunning && newQuery.trim().length >= 3 &&
+        (!filters.service || filters.service === "local")) {
         try {
           const agentRes = await axios.get(`${AGENT_URL}/search`, {
-            params: { q: newQuery, limit: 10, filetype: fileTypeFilter || undefined },
+            params: { q: newQuery, limit: 10, filetype: filters.filetype || undefined },
             timeout: 2000,
           });
           const seenPaths = new Set(newData.map((f) => f.filepath));
@@ -120,7 +134,8 @@ const FileSearch: React.FC = () => {
               filetype: r.filetype,
               last_modified: r.last_modified
             }));
-          newData = [...agentItems, ...newData];
+          // Append agent items at the end to prioritize backend-ranked results
+          newData = [...newData, ...agentItems];
         } catch {
           // Agent search failed — continue with backend results only
         }
@@ -139,52 +154,22 @@ const FileSearch: React.FC = () => {
 
   // Ctrl+K / ⌘K is now handled globally by the CommandPalette in DashboardLayout
 
-  // Fetch details when selection changes
+  // Single debounced search effect — re-triggers on query or filter changes
   useEffect(() => {
-    if (!selectedFilePath) {
-      setSelectedFileDetails(null);
+    // Only search if query is empty (recent files) or at least 3 chars
+    if (query.trim() && query.trim().length < 3) {
       return;
     }
 
-    const fetchDetails = async () => {
-      setLoadingDetails(true);
-      try {
-        const file = files.find(f => (f.filepath || f.cloud_file_id || String(f.id)) === selectedFilePath);
-        if (!file) return;
-
-        const response = await axios.get(`${BACKEND_URL}/search/file-details`, {
-          params: { id: file.id, filepath: file.filepath },
-          withCredentials: true,
-        });
-
-        const details = response.data;
-        if (details.preview_url === 'local_agent_preview' && agentRunning) {
-          details.preview_url = `${AGENT_URL}/preview?filepath=${encodeURIComponent(file.filepath || '')}`;
-        }
-        
-        setSelectedFileDetails(details);
-      } catch (error) {
-        console.error("Failed to fetch details:", error);
-        setSelectedFileDetails(null);
-      } finally {
-        setLoadingDetails(false);
-      }
-    };
-
-    fetchDetails();
-  }, [selectedFilePath, files, agentRunning]);
-
-  // Single debounced search effect
-  useEffect(() => {
     const delaySearch = setTimeout(() => {
       fetchFiles(query, 1);
       if (query.trim()) {
-        setTimeout(fetchRecentSearches, 1000); // Fetch recent searches after a small delay to allow backend to record
+        setTimeout(fetchRecentSearches, 1000);
       }
-    }, 500);
+    }, 500); // Increased debounce to 500ms
 
     return () => clearTimeout(delaySearch);
-  }, [query, serviceFilter, fileTypeFilter]);
+  }, [query, filters.service, filters.filetype, filters.modifiedAfter, filters.modifiedBefore, filters.sizeMin, filters.sizeMax]);
 
   const handleFileAccess = async (file: any) => {
     if (!file) return;
@@ -315,11 +300,6 @@ const FileSearch: React.FC = () => {
     }
   };
 
-  const resetFilters = () => {
-    setServiceFilter("");
-    setFileTypeFilter("");
-  };
-
   const showToastNotification = (message: string) => {
     setToastMessage(message);
     setShowToast(true);
@@ -366,10 +346,22 @@ const FileSearch: React.FC = () => {
     }
   };
 
+  const handleResultClick = (file: FileItem) => {
+    const fileKey = file.filepath || file.cloud_file_id || String(file.id);
+    const isAlreadySelected = selectedFile?.filepath === file.filepath;
+    if (isAlreadySelected) {
+      closePanel();
+    } else {
+      selectFile(file as SearchResult);
+    }
+  };
+
   const handleKeyDown = (_e: React.KeyboardEvent) => {
     // Local keydown handler can still exist but global one takes precedence
     
   };
+
+  const isPanelOpen = selectedFile !== null;
 
   return (
     <DashboardLayout agentRunning={agentRunning}>
@@ -411,9 +403,9 @@ const FileSearch: React.FC = () => {
               ].map(({ key, label }) => (
                 <button
                   key={key}
-                  onClick={() => setFileTypeFilter(fileTypeFilter === key ? "" : key)}
+                  onClick={() => updateFilter("filetype", filters.filetype === key ? "" : key)}
                   className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                    fileTypeFilter === key
+                    filters.filetype === key
                       ? "bg-primary-container text-on-primary-fixed"
                       : "text-on-surface-variant hover:bg-surface-variant"
                   }`}
@@ -431,9 +423,9 @@ const FileSearch: React.FC = () => {
               ].map(({ key, label }) => (
                 <button
                   key={key}
-                  onClick={() => setServiceFilter(serviceFilter === key ? "" : key)}
+                  onClick={() => updateFilter("service", filters.service === key ? "" : key)}
                   className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                    serviceFilter === key
+                    filters.service === key
                       ? "bg-primary-container text-on-primary-fixed"
                       : "text-on-surface-variant hover:bg-surface-variant"
                   }`}
@@ -443,8 +435,8 @@ const FileSearch: React.FC = () => {
               ))}
             </div>
 
-            {(fileTypeFilter || serviceFilter) && (
-              <button onClick={resetFilters} className="text-red-400 text-[10px] uppercase font-bold px-2 hover:underline">
+            {hasActiveFilters() && (
+              <button onClick={resetSmartFilters} className="text-red-400 text-[10px] uppercase font-bold px-2 hover:underline">
                 Clear
               </button>
             )}
@@ -460,10 +452,26 @@ const FileSearch: React.FC = () => {
           </div>
         </header>
 
-        {/* Content Area - Split View */}
+        {/* Smart Filters Bar */}
+        <SmartFilters
+          filters={filters}
+          onChange={updateFilter}
+          onReset={resetSmartFilters}
+          resultCount={files.length}
+          hasActive={hasActiveFilters()}
+          activeCount={activeFilterCount()}
+        />
+
+        {/* Content Area */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Results List (65% or 100%) */}
-          <section className={`flex flex-col h-full bg-surface-container-lowest transition-all duration-300 ${selectedFilePath ? 'w-[65%]' : 'w-full'}`}>
+          {/* Results List */}
+          <section
+            className="flex flex-col h-full bg-surface-container-lowest transition-all duration-300"
+            style={{
+              width: isPanelOpen ? "calc(100% - 376px)" : "100%",
+              transition: "width 300ms ease",
+            }}
+          >
             <div className="px-8 py-4 flex justify-between items-end border-b border-outline-variant/10">
               <div className="flex flex-col gap-2 w-full">
                 {!query && recentSearches.length > 0 && (
@@ -525,19 +533,34 @@ const FileSearch: React.FC = () => {
             >
               {files.map((file) => {
                 const fileKey = file.filepath || file.cloud_file_id || String(file.id);
-                const isSelected = selectedFilePath === fileKey;
+                const isSelected = selectedFile?.filepath === file.filepath && selectedFile?.filepath !== undefined;
                 const iconName = getFileIcon(file.filepath, file.storage_type);
                 const extText = (file.filetype || file.filepath?.split('.').pop() || "FILE").toUpperCase();
 
                 return (
                   <div
                     key={fileKey}
-                    onClick={() => setSelectedFilePath(isSelected ? null : fileKey)}
-                    className={`group flex items-center gap-4 p-4 border rounded-xl cursor-pointer transition-all duration-200 ${
-                      isSelected 
-                        ? "bg-[#1A1B26] border-[#2A2C3E] shadow-sm" 
-                        : "bg-[#13141C] border-[#1E2030] hover:bg-[#1A1B26] hover:border-[#2A2C3E]"
-                    }`}
+                    onClick={() => handleResultClick(file)}
+                    className={`group flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200`}
+                    style={{
+                      background: isSelected ? "#16172A" : "#13141C",
+                      border: isSelected ? "1px solid #2A2C3E" : "1px solid #1E2030",
+                      borderLeft: isSelected ? "3px solid #6C63FF" : "1px solid #1E2030",
+                      boxShadow: isSelected ? "0 2px 8px rgba(108,99,255,0.08)" : "none",
+                    }}
+                    onMouseEnter={e => {
+                      if (!isSelected) {
+                        e.currentTarget.style.background = "#1A1B26";
+                        e.currentTarget.style.borderColor = "#2A2C3E";
+                      }
+                    }}
+                    onMouseLeave={e => {
+                      if (!isSelected) {
+                        e.currentTarget.style.background = "#13141C";
+                        e.currentTarget.style.borderColor = "#1E2030";
+                        e.currentTarget.style.borderLeft = "1px solid #1E2030";
+                      }
+                    }}
                   >
                     <div className={`w-10 h-10 shrink-0 rounded-lg flex flex-col items-center justify-center border ${
                       isSelected ? "bg-primary/10 border-primary/20" : "bg-[#20212E] border-outline-variant/10"
@@ -612,112 +635,19 @@ const FileSearch: React.FC = () => {
               )}
             </div>
           </section>
-
-          {/* Detail Panel (35%) */}
-          {selectedFilePath && (
-            <aside className="w-[35%] bg-[#0D0E14] border-l border-[#1E2030] flex flex-col h-full overflow-y-auto">
-              {loadingDetails ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="h-8 w-8 border-t-2 border-primary rounded-full animate-spin"></div>
-                </div>
-              ) : selectedFileDetails ? (
-                <div className="p-8 space-y-8">
-                  {/* Detail Header */}
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-start">
-                      <div className="w-14 h-14 bg-primary/10 rounded-xl flex flex-col items-center justify-center border border-primary/20">
-                        <span className="material-symbols-outlined text-primary text-2xl">{getFileIcon(selectedFileDetails.filepath, selectedFileDetails.storage_type)}</span>
-                        <span className="text-[10px] font-black text-primary uppercase">{(selectedFileDetails.filetype || "FILE").substring(0, 4)}</span>
-                      </div>
-                      <button onClick={() => setSelectedFilePath(null)} className="text-on-surface-variant hover:text-on-surface">
-                        <span className="material-symbols-outlined">close</span>
-                      </button>
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold text-on-surface leading-tight break-all">{selectedFileDetails.filename}</h2>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 text-[10px] font-bold rounded uppercase border border-blue-500/20">
-                          {selectedFileDetails.storage_type.replace('_', ' ')}
-                        </span>
-                        <span className="text-xs text-on-surface-variant">• Updated {selectedFileDetails.last_modified}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Preview Image */}
-                  <div className="aspect-[4/3] bg-[#1A1B26] rounded-xl border border-[#2A2C3E] relative overflow-hidden group flex items-center justify-center">
-                    {selectedFileDetails.preview_url ? (
-                      <img 
-                        src={selectedFileDetails.preview_url} 
-                        alt="Document preview" 
-                        className="w-full h-full object-cover opacity-80"
-                        onError={(e) => {
-                          // Fallback if preview fails to load
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                       <span className="material-symbols-outlined text-6xl text-on-surface-variant/20">{getFileIcon(selectedFileDetails.filepath, selectedFileDetails.storage_type)}</span>
-                    )}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-container-lowest/20 backdrop-blur-[1px] opacity-0 group-hover:opacity-100 transition-opacity">
-                       <button onClick={() => handleOpenFileLocation(selectedFileDetails)} className="p-3 bg-primary/80 rounded-full text-white shadow-lg hover:bg-primary transition-colors">
-                          <span className="material-symbols-outlined">visibility</span>
-                       </button>
-                    </div>
-                  </div>
-
-                  {/* Metadata */}
-                  <div className="space-y-4">
-                    <h4 className="text-[11px] uppercase tracking-[1px] font-bold text-outline">Properties</h4>
-                    <div className="grid grid-cols-2 gap-y-4 gap-x-2">
-                      <div>
-                        <p className="text-[10px] text-on-surface-variant/60 uppercase font-semibold">Size</p>
-                        <p className="text-sm font-mono text-on-surface mt-0.5">{selectedFileDetails.size || "Unknown"}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-on-surface-variant/60 uppercase font-semibold">Type</p>
-                        <p className="text-sm font-mono text-on-surface mt-0.5 capitalize">{selectedFileDetails.filetype || "Document"}</p>
-                      </div>
-                      <div className="col-span-2">
-                        <p className="text-[10px] text-on-surface-variant/60 uppercase font-semibold">File Path</p>
-                        <p className="text-sm font-mono text-on-surface mt-0.5 break-all">{selectedFileDetails.filepath}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-on-surface-variant/60 uppercase font-semibold">Created</p>
-                        <p className="text-sm font-mono text-on-surface mt-0.5">{selectedFileDetails.created_at || selectedFileDetails.last_modified}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-on-surface-variant/60 uppercase font-semibold">Owner</p>
-                        <p className="text-sm font-mono text-on-surface mt-0.5">{selectedFileDetails.owner || "Me"}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="space-y-3 pt-4 border-t border-[#1E2030]">
-                    <button onClick={() => handleOpenFileLocation(selectedFileDetails)} className="w-full bg-gradient-to-r from-[#c4c0ff] to-[#8781ff] py-3 rounded-lg text-[#1b0091] font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:brightness-110 transition-all">
-                      <span className="material-symbols-outlined text-lg">open_in_new</span>
-                      Open File
-                    </button>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button onClick={() => handleDownload(selectedFileDetails)} className="py-2.5 bg-surface-container-high border border-outline-variant/30 rounded-lg text-on-surface font-semibold text-xs flex items-center justify-center gap-2 hover:bg-surface-variant transition-colors">
-                        <span className="material-symbols-outlined text-lg">download</span>
-                        Download
-                      </button>
-                      <button onClick={() => {
-                        navigator.clipboard.writeText(selectedFileDetails.filepath || "");
-                        showToastNotification("Copied path to clipboard");
-                      }} className="py-2.5 bg-transparent border border-outline-variant/20 rounded-lg text-on-surface-variant font-semibold text-xs flex items-center justify-center gap-2 hover:bg-surface-container hover:text-on-surface transition-colors">
-                        <span className="material-symbols-outlined text-lg">content_copy</span>
-                        Copy Path
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </aside>
-          )}
         </div>
+
+        {/* File Preview Panel */}
+        <FilePreviewPanel
+          file={selectedFile as SearchResult | null}
+          previewData={previewData}
+          loading={previewLoading}
+          error={previewError}
+          onClose={closePanel}
+          onFavoriteToggle={toggleFavorite}
+          onOpen={(f) => handleOpenFileLocation(f)}
+          onDownload={(f) => handleDownload(f)}
+        />
 
         {/* Toast */}
         <AnimatePresence>
