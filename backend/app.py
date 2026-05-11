@@ -143,6 +143,8 @@ def initialize_app():
 # Run initialization ON STARTUP (production-safe)
 with app.app_context():
     initialize_app()
+    # Also start background sync jobs
+    start_auto_sync_threads(app)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

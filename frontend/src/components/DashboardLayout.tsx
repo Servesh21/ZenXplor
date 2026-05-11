@@ -57,7 +57,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, agentRunnin
             ZenXplor
           </h1>
           <p className="text-[10px] uppercase tracking-[1.5px] text-slate-500 mt-1 font-mono">
-            Midnight Architect
+            Universal File Search Engine
           </p>
         </Link>
       </div>

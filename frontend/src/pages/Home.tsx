@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/DashboardLayout";
 import AgentDownloadModal from "../components/AgentDownloadModal";
+import SyncProgressBar from "../components/SyncProgressBar";
 import axios from "axios";
 import { BACKEND_URL, AGENT_URL } from "../api";
 import {
@@ -41,6 +42,7 @@ const Home: React.FC = () => {
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [progress, setProgress] = useState<any>({});
   const navigate = useNavigate();
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -83,6 +85,22 @@ const Home: React.FC = () => {
       }
     };
     fetchDashboardData();
+  }, []);
+
+  // Poll for progress
+  useEffect(() => {
+    const pollProgress = async () => {
+      try {
+        const res = await axios.get(`${BACKEND_URL}/search/indexing-progress`, { withCredentials: true });
+        setProgress(res.data || {});
+      } catch (error) {
+        console.error("Failed to fetch indexing progress", error);
+      }
+    };
+
+    pollProgress();
+    const intervalId = setInterval(pollProgress, 3000);
+    return () => clearInterval(intervalId);
   }, []);
 
   // Handle Search Submission
@@ -186,28 +204,48 @@ const Home: React.FC = () => {
                     <span className="text-[10px] font-medium text-[#34A853] uppercase tracking-wider">Connected</span>
                   </div>
                 </div>
+                {/* Progress bar on Home Tile */}
+                <div className="mt-4">
+                   {/* We assume there's at least one account, showing the first one's progress for simplicity on Home */}
+                   {Object.keys(progress?.google_drive || {}).length > 0 && (
+                     <SyncProgressBar 
+                       compact
+                       status={progress.google_drive[Object.keys(progress.google_drive)[0]].status}
+                       processed={progress.google_drive[Object.keys(progress.google_drive)[0]].processed}
+                       total={progress.google_drive[Object.keys(progress.google_drive)[0]].total}
+                     />
+                   )}
+                </div>
               </div>
             )}
 
             {/* Local Disk - Always Connected */}
             <div className="bg-surface-container-lowest border border-outline-variant/15 p-5 rounded-xl hover:border-primary/40 transition-colors group cursor-pointer" onClick={() => navigate('/file-search')}>
-              <div className="flex justify-between items-start">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center">
-                    <span className="material-symbols-outlined text-primary">hard_drive</span>
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center">
+                      <span className="material-symbols-outlined text-primary">hard_drive</span>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-white">Local Disk</p>
+                      <p className="text-xs text-on-surface-variant font-mono">
+                        {stats ? `${stats.local.count.toLocaleString()} files` : "Loading..."}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold text-white">Local Disk</p>
-                    <p className="text-xs text-on-surface-variant font-mono">
-                      {stats ? `${stats.local.count.toLocaleString()} files` : "Loading..."}
-                    </p>
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#34A853]/10">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#34A853]"></span>
+                    <span className="text-[10px] font-medium text-[#34A853] uppercase tracking-wider">Connected</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#34A853]/10">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#34A853]"></span>
-                  <span className="text-[10px] font-medium text-[#34A853] uppercase tracking-wider">Connected</span>
+                <div className="mt-4">
+                  <SyncProgressBar 
+                    compact
+                    status={progress?.local?.default?.status}
+                    processed={progress?.local?.default?.processed || 0}
+                    total={progress?.local?.default?.total || null}
+                  />
                 </div>
-              </div>
             </div>
 
             {/* Dropbox */}
@@ -229,6 +267,16 @@ const Home: React.FC = () => {
                     <span className="w-1.5 h-1.5 rounded-full bg-[#34A853]"></span>
                     <span className="text-[10px] font-medium text-[#34A853] uppercase tracking-wider">Connected</span>
                   </div>
+                </div>
+                <div className="mt-4">
+                   {Object.keys(progress?.dropbox || {}).length > 0 && (
+                     <SyncProgressBar 
+                       compact
+                       status={progress.dropbox[Object.keys(progress.dropbox)[0]].status}
+                       processed={progress.dropbox[Object.keys(progress.dropbox)[0]].processed}
+                       total={progress.dropbox[Object.keys(progress.dropbox)[0]].total}
+                     />
+                   )}
                 </div>
               </div>
             )}

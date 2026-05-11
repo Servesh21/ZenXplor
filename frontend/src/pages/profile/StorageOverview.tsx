@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { BACKEND_URL } from "../../api";
 import DashboardLayout from "../../components/DashboardLayout";
+import SyncProgressBar from "../../components/SyncProgressBar";
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const DROPBOX_CLIENT_ID = import.meta.env.VITE_DROPBOX_CLIENT_ID;
@@ -14,11 +15,25 @@ interface Account {
   lastSynced: string | null;
 }
 
+interface IndexingProgress {
+  status: string;
+  processed: number;
+  total: number | null;
+}
+
+interface UserProgress {
+  [source: string]: {
+    [accountId: string]: IndexingProgress;
+  };
+}
+
+
 const CloudStorageAccounts = () => {
   const [connectedAccounts, setConnectedAccounts] = useState<Account[]>([]);
-  const [syncingAccount, setSyncingAccount] = useState<number | null>(null);
+  // const [syncingAccount, setSyncingAccount] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [progress, setProgress] = useState<UserProgress>({});
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -32,7 +47,7 @@ const CloudStorageAccounts = () => {
       const id = userResponse.data.id;
       if (!id) {
         setIsLoading(false);
-        return;
+        return [];
       }
 
       const accountsResponse = await axios.get(`${BACKEND_URL}/cloud-accounts/${id}`, {
@@ -40,9 +55,12 @@ const CloudStorageAccounts = () => {
       });
       if (Array.isArray(accountsResponse.data)) {
         setConnectedAccounts(accountsResponse.data);
+        return accountsResponse.data;
       }
+      return [];
     } catch (error) {
       console.error("Error fetching accounts:", error);
+      return [];
     } finally {
       setIsLoading(false);
     }
@@ -52,12 +70,53 @@ const CloudStorageAccounts = () => {
     fetchAccounts();
   }, [fetchAccounts]);
 
+  // Poll for progress
+  useEffect(() => {
+    const pollProgress = async () => {
+      try {
+        const res = await axios.get(`${BACKEND_URL}/search/indexing-progress`, { withCredentials: true });
+        setProgress(res.data || {});
+      } catch (error) {
+        console.error("Failed to fetch indexing progress", error);
+      }
+    };
+
+    pollProgress();
+    const intervalId = setInterval(pollProgress, 3000);
+    return () => clearInterval(intervalId);
+  }, []);
+
+  const handleSyncDropbox = async (accountId: number) => {
+    try {
+      await axios.post(`${BACKEND_URL}/search/sync-dropbox`, { account_id: accountId }, { withCredentials: true });
+      fetchAccounts();
+    } catch (error) {
+      console.error("Error syncing Dropbox account:", error);
+    }
+  };
+
+  const handleSyncGoogleAccount = async (accountId: number) => {
+    try {
+      await axios.post(`${BACKEND_URL}/search/sync-cloud-storage`, { account_id: accountId }, { withCredentials: true });
+      await axios.post(`${BACKEND_URL}/search/gmail/sync`, { account_id: accountId }, { withCredentials: true });
+      await axios.post(`${BACKEND_URL}/search/photos/sync`, { account_id: accountId }, { withCredentials: true });
+      fetchAccounts();
+    } catch (error) {
+      console.error("Error syncing Google account:", error);
+    }
+  };
+
   // Listen for OAuth popup completion
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
+    const handleMessage = async (event: MessageEvent) => {
       if (event.data?.type === "oauth_complete" && event.data?.status === "success") {
-        showToast(`Connected ${event.data.email || "account"} successfully!`);
-        fetchAccounts();
+        showToast(`Connected ${event.data.email || "account"} successfully! Syncing...`);
+        await fetchAccounts();
+        
+        // Wait briefly for accounts to be updated in state
+        setTimeout(() => {
+           // We could trigger sync here, but the backend redirect is easier to track via URL params
+        }, 500);
       }
     };
     window.addEventListener("message", handleMessage);
@@ -69,8 +128,29 @@ const CloudStorageAccounts = () => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("status") === "success") {
       const email = params.get("email");
-      showToast(`Connected ${email || "account"} successfully!`);
-      fetchAccounts();
+      showToast(`Connected ${email || "account"} successfully! Initiating sync...`);
+      
+      const initiateSync = async () => {
+         const accounts = await fetchAccounts();
+         
+         // Trigger sync for the newly added account
+         try {
+             if (Array.isArray(accounts)) {
+                 const newAcc = accounts.find(a => a.email === email);
+                 if (newAcc) {
+                     if (newAcc.provider === 'Dropbox') {
+                         handleSyncDropbox(newAcc.id);
+                     } else if (newAcc.provider === 'Google Drive') {
+                         handleSyncGoogleAccount(newAcc.id);
+                     }
+                 }
+             }
+         } catch (e) {
+             console.error("Could not auto-start sync:", e);
+         }
+      };
+      
+      initiateSync();
       // Clean up URL
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -122,45 +202,6 @@ const CloudStorageAccounts = () => {
     }
   };
 
-  const handleSyncDropbox = async (accountId: number) => {
-    setSyncingAccount(accountId);
-    try {
-      await axios.post(`${BACKEND_URL}/search/sync-dropbox`, { account_id: accountId }, { withCredentials: true });
-      setConnectedAccounts((prev) =>
-        prev.map((account) =>
-          account.id === accountId ? { ...account, lastSynced: new Date().toISOString() } : account
-        )
-      );
-      showToast("Dropbox synced successfully!");
-    } catch (error) {
-      console.error("Error syncing Dropbox account:", error);
-      showToast("Sync failed. Please try again.");
-    } finally {
-      setSyncingAccount(null);
-    }
-  };
-
-  const handleSyncGoogleAccount = async (accountId: number) => {
-    setSyncingAccount(accountId);
-    try {
-      await axios.post(`${BACKEND_URL}/search/sync-cloud-storage`, { account_id: accountId }, { withCredentials: true });
-      await axios.post(`${BACKEND_URL}/search/gmail/sync`, { account_id: accountId }, { withCredentials: true });
-      await axios.post(`${BACKEND_URL}/search/photos/sync`, { account_id: accountId }, { withCredentials: true });
-
-      setConnectedAccounts((prev) =>
-        prev.map((account) =>
-          account.id === accountId ? { ...account, lastSynced: new Date().toISOString() } : account
-        )
-      );
-      showToast("Google Workspace synced successfully!");
-    } catch (error) {
-      console.error("Error syncing Google account:", error);
-      showToast("Sync failed. Please try again.");
-    } finally {
-      setSyncingAccount(null);
-    }
-  };
-
   const handleRemoveAccount = async (accountId: number) => {
     try {
       await axios.delete(`${BACKEND_URL}/cloud-accounts/${accountId}`, { withCredentials: true });
@@ -174,6 +215,7 @@ const CloudStorageAccounts = () => {
 
   const googleAccounts = connectedAccounts.filter((acc) => acc.provider === "Google Drive");
   const dropboxAccounts = connectedAccounts.filter((acc) => acc.provider === "Dropbox");
+
 
   return (
     <DashboardLayout>
@@ -190,10 +232,7 @@ const CloudStorageAccounts = () => {
               centralize your workflow.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs font-mono bg-surface-container-lowest px-3 py-1.5 rounded-lg border border-outline-variant/15">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
-            <span className="text-on-surface-variant">System Status: Optimal</span>
-          </div>
+
         </div>
 
         {/* Integration Grid */}
@@ -203,7 +242,7 @@ const CloudStorageAccounts = () => {
             [1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="bg-surface-container-low rounded-xl p-6 h-[200px] border border-outline-variant/10 animate-pulse flex flex-col justify-between"
+                className="bg-surface-container-low rounded-xl p-6 min-h-[220px] border border-outline-variant/10 animate-pulse flex flex-col justify-between"
               >
                 <div className="flex justify-between items-start">
                   <div className="w-12 h-12 bg-surface-container-high rounded-lg" />
@@ -222,7 +261,7 @@ const CloudStorageAccounts = () => {
               {googleAccounts.map((account) => (
                 <div
                   key={account.id}
-                  className="group bg-surface-container-low hover:bg-surface-container transition-all duration-300 rounded-xl p-6 relative overflow-hidden flex flex-col justify-between h-[200px]"
+                  className="group bg-surface-container-low hover:bg-surface-container transition-all duration-300 rounded-xl p-6 relative overflow-hidden flex flex-col justify-between min-h-[220px]"
                 >
                   <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <span className="material-symbols-outlined text-[80px]">cloud_queue</span>
@@ -238,31 +277,42 @@ const CloudStorageAccounts = () => {
                   <div className="relative z-10">
                     <h3 className="text-lg font-semibold text-on-surface mb-1">Google Workspace</h3>
                     <div className="text-xs font-mono text-on-surface-variant mb-4">{account.email}</div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleSyncGoogleAccount(account.id)}
-                        disabled={syncingAccount === account.id}
-                        className="flex-1 py-2 rounded-lg border border-outline-variant/20 text-xs font-medium hover:bg-surface-container-high transition-colors text-on-surface flex items-center justify-center gap-2"
-                      >
-                        {syncingAccount === account.id ? (
-                          <span className="material-symbols-outlined text-[16px] animate-spin">refresh</span>
-                        ) : (
-                          "Sync"
+                    <div className="flex flex-col gap-3">
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-[10px] text-on-surface-variant uppercase tracking-wider mb-1 opacity-60">Google Drive</p>
+                          <SyncProgressBar 
+                            status={progress?.google_drive?.[String(account.id)]?.status}
+                            processed={progress?.google_drive?.[String(account.id)]?.processed || 0}
+                            total={progress?.google_drive?.[String(account.id)]?.total || null}
+                          />
+                        </div>
+                        {progress?.google_photos?.[String(account.id)] && (
+                          <div>
+                            <p className="text-[10px] text-on-surface-variant uppercase tracking-wider mb-1 opacity-60">Google Photos</p>
+                            <SyncProgressBar 
+                              status={progress?.google_photos?.[String(account.id)]?.status}
+                              processed={progress?.google_photos?.[String(account.id)]?.processed || 0}
+                              total={progress?.google_photos?.[String(account.id)]?.total || null}
+                            />
+                          </div>
                         )}
-                      </button>
-                      <button
-                        onClick={() => handleRemoveAccount(account.id)}
-                        className="py-2 px-3 rounded-lg border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
-                      >
-                        Remove
-                      </button>
+                      </div>
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => handleRemoveAccount(account.id)}
+                          className="py-1.5 px-3 rounded-lg border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               ))}
 
               {/* Add Another Google Account Card — ALWAYS shown */}
-              <div className="group bg-surface-container-lowest hover:bg-surface-container-low transition-all duration-300 rounded-xl p-6 border border-outline-variant/10 flex flex-col justify-between h-[200px]">
+              <div className="group bg-surface-container-lowest hover:bg-surface-container-low transition-all duration-300 rounded-xl p-6 border border-outline-variant/10 flex flex-col justify-between min-h-[220px]">
                 <div className="relative z-10 flex items-start justify-between">
                   <div className="w-12 h-12 rounded-lg bg-surface-container-low flex items-center justify-center">
                     <span className="material-symbols-outlined text-on-surface-variant text-[28px]">cloud_queue</span>
@@ -293,7 +343,7 @@ const CloudStorageAccounts = () => {
               {dropboxAccounts.map((account) => (
                 <div
                   key={account.id}
-                  className="group bg-surface-container-low hover:bg-surface-container transition-all duration-300 rounded-xl p-6 relative overflow-hidden flex flex-col justify-between h-[200px]"
+                  className="group bg-surface-container-low hover:bg-surface-container transition-all duration-300 rounded-xl p-6 relative overflow-hidden flex flex-col justify-between min-h-[220px]"
                 >
                   <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <span className="material-symbols-outlined text-[80px]">cloud_upload</span>
@@ -312,31 +362,27 @@ const CloudStorageAccounts = () => {
                       {account.email} · Last sync:{" "}
                       {account.lastSynced ? new Date(account.lastSynced).toLocaleTimeString() : "Never"}
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleSyncDropbox(account.id)}
-                        disabled={syncingAccount === account.id}
-                        className="flex-1 py-2 rounded-lg border border-outline-variant/20 text-xs font-medium hover:bg-surface-container-high transition-colors text-on-surface flex items-center justify-center gap-2"
-                      >
-                        {syncingAccount === account.id ? (
-                          <span className="material-symbols-outlined text-[16px] animate-spin">refresh</span>
-                        ) : (
-                          "Sync"
-                        )}
-                      </button>
-                      <button
-                        onClick={() => handleRemoveAccount(account.id)}
-                        className="py-2 px-3 rounded-lg border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
-                      >
-                        Remove
-                      </button>
+                    <div className="flex flex-col gap-3">
+                      <SyncProgressBar 
+                        status={progress?.dropbox?.[String(account.id)]?.status}
+                        processed={progress?.dropbox?.[String(account.id)]?.processed || 0}
+                        total={progress?.dropbox?.[String(account.id)]?.total || null}
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => handleRemoveAccount(account.id)}
+                          className="py-1.5 px-3 rounded-lg border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               ))}
 
               {/* Add Another Dropbox Account Card — ALWAYS shown */}
-              <div className="group bg-surface-container-lowest hover:bg-surface-container-low transition-all duration-300 rounded-xl p-6 border border-outline-variant/10 flex flex-col justify-between h-[200px]">
+              <div className="group bg-surface-container-lowest hover:bg-surface-container-low transition-all duration-300 rounded-xl p-6 border border-outline-variant/10 flex flex-col justify-between min-h-[220px]">
                 <div className="relative z-10 flex items-start justify-between">
                   <div className="w-12 h-12 rounded-lg bg-surface-container-low flex items-center justify-center">
                     <span className="material-symbols-outlined text-on-surface-variant text-[28px]">cloud_upload</span>
@@ -364,7 +410,7 @@ const CloudStorageAccounts = () => {
               </div>
 
               {/* Local Computer */}
-              <div className="group bg-surface-container-low hover:bg-surface-container lg:col-span-1 transition-all duration-300 rounded-xl p-6 relative overflow-hidden flex flex-col justify-between h-[200px]">
+              <div className="group bg-surface-container-low hover:bg-surface-container lg:col-span-1 transition-all duration-300 rounded-xl p-6 relative overflow-hidden flex flex-col justify-between min-h-[220px]">
                 <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-all">
                   <span className="material-symbols-outlined text-[80px]">computer</span>
                 </div>
@@ -383,10 +429,12 @@ const CloudStorageAccounts = () => {
                     Agent Configured Desktop
                   </p>
 
-                  <div className="flex gap-2">
-                    <button className="flex-1 py-2 rounded-lg bg-surface-container-high text-xs font-medium hover:bg-surface-bright transition-colors text-on-surface">
-                      Manage Local Agent
-                    </button>
+                  <div className="flex flex-col gap-2">
+                     <SyncProgressBar 
+                       status={progress?.local?.default?.status}
+                       processed={progress?.local?.default?.processed || 0}
+                       total={progress?.local?.default?.total || null}
+                     />
                   </div>
                 </div>
               </div>

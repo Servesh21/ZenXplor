@@ -1,7 +1,7 @@
 import os, io, logging, threading, time, psutil, urllib.parse
 from flask import Blueprint, request, jsonify, current_app, send_file, request as flask_request
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, IndexedFile, CloudStorageAccount
+from models import db, IndexedFile, CloudStorageAccount, User
 from elasticsearch import Elasticsearch, helpers
 from flask_cors import CORS
 from googleapiclient.http import MediaIoBaseDownload
@@ -26,7 +26,8 @@ CORS(search_bp, supports_credentials=True, origins=["http://localhost:5173"])
 
 logging.basicConfig(level=logging.INFO)
 indexing_status = {}
-executor = None
+from concurrent.futures import ThreadPoolExecutor
+executor = ThreadPoolExecutor(max_workers=5)
 
 
 AUTO_SYNC_INTERVAL_LOCAL = 30
@@ -37,34 +38,46 @@ EXCLUDE_FILES = {".DS_Store", "thumbs.db"}
 
 indexing_status = {}
 
+def update_progress(user_id, source, account_id, status, processed, total=None):
+    user_id_str = str(user_id)
+    if user_id_str not in indexing_status:
+        indexing_status[user_id_str] = {}
+    if source not in indexing_status[user_id_str]:
+        indexing_status[user_id_str][source] = {}
+    
+    current = indexing_status[user_id_str][source].get(str(account_id), {})
+    indexing_status[user_id_str][source][str(account_id)] = {
+        "status": status,
+        "processed": processed,
+        "total": total if total is not None else current.get("total")
+    }
 
 auto_sync_started = False  # Global flag
 
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime
+
+scheduler = BackgroundScheduler()
+
 def start_auto_sync_threads(app):
-    """Start background threads for auto-syncing local storage, Google Drive, and Dropbox."""
-    global executor
+    """Start background scheduler for auto-syncing local storage, Google Drive, and Dropbox."""
+    global scheduler
 
-    if executor:
-        print("🔄 Stopping previous executor...")
-        executor.shutdown(wait=False)  # ✅ Properly stop previous threads before restarting
+    if scheduler.running:
+        print("🔄 Scheduler already running...")
+        return
 
-    executor = ThreadPoolExecutor(max_workers=5)  # ✅ Restart the executor
-    print("🚀 Auto-sync threads started.")
-
-    # ✅ Start local storage indexing thread
-    local_indexing_thread = threading.Thread(target=auto_index_local_storage, args=(app,), daemon=True)
-    local_indexing_thread.start()
-
-    # ✅ Start Google Drive indexing thread
-    gdrive_indexing_thread = threading.Thread(target=auto_index_google_drive, args=(app,), daemon=True)
-    gdrive_indexing_thread.start()
-
-    # ✅ Start Dropbox indexing thread
-    dropbox_indexing_thread = threading.Thread(target=auto_index_dropbox, args=(app,), daemon=True)
-    dropbox_indexing_thread.start()
-
-    print("📂 Local storage, ☁️ Google Drive, and 📦 Dropbox auto-sync started.")
-
+    print("🚀 Auto-sync scheduler starting...")
+    
+    # Run immediately, then every 10 minutes
+    now = datetime.now()
+    scheduler.add_job(func=auto_index_local_storage, args=[app], trigger="interval", minutes=10, id="local_sync", replace_existing=True, next_run_time=now)
+    scheduler.add_job(func=auto_index_google_drive, args=[app], trigger="interval", minutes=10, id="gdrive_sync", replace_existing=True, next_run_time=now)
+    scheduler.add_job(func=auto_index_dropbox, args=[app], trigger="interval", minutes=10, id="dropbox_sync", replace_existing=True, next_run_time=now)
+    
+    scheduler.start()
+    print("📂 Local storage, ☁️ Google Drive, and 📦 Dropbox auto-sync scheduled (every 10m).")
 
 
 
@@ -88,180 +101,168 @@ def is_valid_dir(dir_path):
     dir_name = os.path.basename(dir_path)
     return dir_name not in EXCLUDE_DIRS
 
-def get_user_dirs():
-    """Get the current user's directory inside C:/Users."""
-    user_home = os.path.expanduser("~")  # Automatically gets C:/Users/Username
-    return [user_home] if os.path.exists(user_home) else []
+def get_scan_roots():
+    """Get the roots to scan for local files. On Windows, scan all drives."""
+    if os.name == 'nt':
+        return get_available_drives()
+    return ["/"]
 
 def auto_index_local_storage(app):
-    """Periodically check for new files and index only new ones."""
+    """Check for new files and index only new ones."""
     global executor
-    print("starting auto-indexing...")
-    with app.app_context():  # ✅ Ensure we are inside Flask app context
-        while threading.main_thread().is_alive():
-            try:
-                users = db.session.query(IndexedFile.user_id).distinct().all()
-                user_dirs = get_user_dirs()
-                 # Debugging log
-                for (user_id,) in users:
-                    for user_dir in user_dirs:
-                        if is_valid_dir(user_dir):
-                            executor.submit(index_new_files_only, user_id,app) # ✅ Submit safely
-                            print(f"Indexing new files for user {user_id} in {user_dir}")  # Debugging log
+    print("🚀 Local storage auto-indexing starting...")
+    
+    with app.app_context():
+        try:
+            users = db.session.query(User.id).all()
+            roots = get_scan_roots()
+            
+            for (user_id,) in users:
+                executor.submit(index_local_roots, user_id, roots, app)
+        except Exception as e:
+            print(f"❌ Error in auto-indexing: {str(e)}")
 
-            except RuntimeError as e:
-                if "cannot schedule new futures after shutdown" in str(e):
-                    print("🛑 Executor shutdown detected, stopping indexing thread.")
-                    break  # ✅ Exit loop if Flask is shutting down
-                print(f"❌ Error in auto-indexing: {str(e)}")
+def index_local_roots(user_id, roots, app):
+    """Scan multiple roots and index new files with progress tracking."""
+    with app.app_context():
+        session = db.session
+        all_files_to_index = []
+        
+        try:
+            update_progress(user_id, "local", "default", "fetching", 0, None)
+            
+            for root in roots:
+                print(f"🔍 Counting files in root: {root}")
+                for dirpath, dirnames, filenames in os.walk(root):
+                    # Exclude directories
+                    dirnames[:] = [d for d in dirnames if is_valid_dir(os.path.join(dirpath, d))]
+                    
+                    for f in filenames:
+                        fp = os.path.join(dirpath, f)
+                        if is_valid_file(fp):
+                            all_files_to_index.append(fp)
+            
+            total_files = len(all_files_to_index)
+            update_progress(user_id, "local", "default", "indexing", 0, total_files)
+            
+            indexed_items = []
+            for idx, file_path in enumerate(all_files_to_index):
+                file = os.path.basename(file_path)
 
-            time.sleep(3600)  # ✅ Prevent excessive CPU usage
+                # Get file stats
+                file_size = None
+                file_mtime = None
+                try:
+                    file_stat = os.stat(file_path)
+                    file_size = file_stat.st_size
+                    file_mtime = file_stat.st_mtime
+                except OSError:
+                    continue
 
-        print("🛑 Auto-indexing stopped.")
+                file_type = file.split('.')[-1] if '.' in file else 'unknown'
+                last_mod_dt = datetime.fromtimestamp(file_mtime, timezone.utc) if file_mtime else None
+
+                # Upsert
+                stmt = insert(IndexedFile).values(
+                    user_id=user_id,
+                    filename=file,
+                    filepath=file_path,
+                    filetype=file_type,
+                    is_folder=False,
+                    filesize=file_size,
+                    last_modified=last_mod_dt,
+                    storage_type="local"
+                ).on_conflict_do_update(
+                    index_elements=["filepath"],
+                    set_={
+                        "filename": file,
+                        "filetype": file_type,
+                        "filesize": file_size,
+                        "last_modified": last_mod_dt
+                    }
+                )
+                session.execute(stmt)
+
+                indexed_items.append({
+                    "id": f"{user_id}_{file_path}",
+                    "user_id": user_id,
+                    "filename": file,
+                    "filepath": file_path,
+                    "filetype": file_type,
+                    "is_folder": False,
+                    "filesize": file_size,
+                    "last_modified": file_mtime
+                })
+                
+                if idx > 0 and idx % 100 == 0:
+                    update_progress(user_id, "local", "default", "indexing", idx, total_files)
+
+            session.commit()
+            
+            if indexed_items and es:
+                helpers.bulk(es, [{"_index": "file_index", "_id": item["id"], "_source": item} for item in indexed_items])
+                
+            update_progress(user_id, "local", "default", "completed", total_files, total_files)
+            print(f"✅ Local sync complete for user {user_id}. Indexed {len(indexed_items)} files.")
+
+        except Exception as e:
+            logging.error(f"❌ Local indexing error: {str(e)}")
+            session.rollback()
+            update_progress(user_id, "local", "default", "error", 0, None)
+        finally:
+            session.close()
+
 
 def auto_index_google_drive(app):
-    """Periodically index new files from all users' Google Drive accounts."""
+    """Index new files from all users' Google Drive accounts."""
     
-    while True:
-        with app.app_context():  # ✅ Ensures app context for database access
-            print("🚀 Google Drive Auto-Indexing Started")  # Debug log
+    with app.app_context():  # ✅ Ensures app context for database access
+        print("🚀 Google Drive Auto-Indexing Started")  # Debug log
 
-            users = db.session.query(IndexedFile.user_id).distinct().all()
-            print(f"🔄 Syncing Google Drive for {len(users)} users...")  
+        users = db.session.query(IndexedFile.user_id).distinct().all()
+        print(f"🔄 Syncing Google Drive for {len(users)} users...")  
 
-            for (user_id,) in users:
-                try:
-                    # ✅ Fetch all linked Google Drive accounts for this user
-                    account_ids = db.session.query(CloudStorageAccount.id).filter_by(
-                        user_id=user_id, provider="Google Drive"
-                    ).all()
-                    
-                    for (account_id,) in account_ids:
-                        print(f"🔄 Syncing Google Drive for User {user_id}, Account {account_id}")
-                        sync_google_drive(account_id, user_id)  # ✅ Call your function
+        for (user_id,) in users:
+            try:
+                # ✅ Fetch all linked Google Drive accounts for this user
+                account_ids = db.session.query(CloudStorageAccount.id).filter_by(
+                    user_id=user_id, provider="Google Drive"
+                ).all()
+                
+                for (account_id,) in account_ids:
+                    print(f"🔄 Syncing Google Drive for User {user_id}, Account {account_id}")
+                    sync_google_drive(account_id, user_id)  # ✅ Call your function
 
-                except Exception as e:
-                    logging.error(f"❌ Google Drive indexing error for User {user_id}: {str(e)}")
+            except Exception as e:
+                logging.error(f"❌ Google Drive indexing error for User {user_id}: {str(e)}")
 
-            db.session.remove()  # ✅ Prevent memory leaks
-        time.sleep(3600)  
+        db.session.remove()  # ✅ Prevent memory leaks
 
 
 def auto_index_dropbox(app):
-    """Periodically index new files from all users' Dropbox accounts."""
+    """Index new files from all users' Dropbox accounts."""
     
-    while True:
-        with app.app_context():  # ✅ Ensure Flask app context
-            print("🚀 Dropbox Auto-Indexing Started")  # Debug log
-            
-            users = db.session.query(IndexedFile.user_id).distinct().all()
-            print(f"🔄 Syncing Dropbox for {len(users)} users...")  
+    with app.app_context():  # ✅ Ensure Flask app context
+        print("🚀 Dropbox Auto-Indexing Started")  # Debug log
+        
+        users = db.session.query(IndexedFile.user_id).distinct().all()
+        print(f"🔄 Syncing Dropbox for {len(users)} users...")  
 
-            for (user_id,) in users:
-                try:
-                    # ✅ Fetch all linked Dropbox accounts for this user
-                    account_ids = db.session.query(CloudStorageAccount.id).filter_by(
-                        user_id=user_id, provider="Dropbox"
-                    ).all()
-                    
-                    for (account_id,) in account_ids:
-                        print(f"🔄 Syncing Dropbox for User {user_id}, Account {account_id}")
-                        sync_dropbox(account_id, user_id)  # ✅ Call your function
+        for (user_id,) in users:
+            try:
+                # ✅ Fetch all linked Dropbox accounts for this user
+                account_ids = db.session.query(CloudStorageAccount.id).filter_by(
+                    user_id=user_id, provider="Dropbox"
+                ).all()
+                
+                for (account_id,) in account_ids:
+                    print(f"🔄 Syncing Dropbox for User {user_id}, Account {account_id}")
+                    sync_dropbox(account_id, user_id)  # ✅ Call your function
 
-                except Exception as e:
-                    logging.error(f"❌ Dropbox indexing error for User {user_id}: {str(e)}")
+            except Exception as e:
+                logging.error(f"❌ Dropbox indexing error for User {user_id}: {str(e)}")
 
-            db.session.remove()  # ✅ Prevent memory leaks
-        time.sleep(3600)  # ✅ Run every 5 minutes
-
-
-
-
-def index_new_files_only(user_id, app):
-    """Index only new files inside the current user's home directory."""
-    
-    with app.app_context():  # ✅ Push application context using passed `app`
-        print(f"🔄 Starting indexing for user: {user_id}")
-
-        # ✅ Get the current user's home directory
-        user_home = os.path.expanduser("~")  # C:/Users/<username>
-        if not os.path.exists(user_home):
-            logging.warning(f"❌ User directory {user_home} not found.")
-            return
-
-        print(f"📂 Base directory for indexing: {user_home}")  # Debugging log
-
-        # ✅ Initialize a new database session
-        session = db.session
-
-        indexed_items = []
-        new_entries = []
-
-        try:
-            for root, dirs, files in os.walk(user_home):
-                # ✅ Exclude unnecessary directories
-                dirs[:] = [d for d in dirs if is_valid_dir(os.path.join(root, d))]
-
-                for file in files:
-                    file_path = os.path.join(root, file)
-
-                    # ✅ Exclude hidden/system files
-                    if not is_valid_file(file_path):
-                        continue
-                    if not is_valid_dir(file_path):
-                        continue
-
-                    # ✅ Skip already indexed files
-                    if session.query(IndexedFile).filter_by(filepath=file_path, user_id=user_id).first():
-                        continue  
-
-                    print(f"🆕 New file detected: {file_path}")  # Debugging log
-
-                    # Get file stats for size and modification time
-                    file_size = None
-                    file_mtime = None
-                    try:
-                        file_stat = os.stat(file_path)
-                        file_size = file_stat.st_size
-                        file_mtime = file_stat.st_mtime
-                    except OSError:
-                        pass
-
-                    new_entries.append(IndexedFile(
-                        user_id=user_id,
-                        filename=file,
-                        filepath=file_path,
-                        is_folder=False,
-                        filesize=file_size,
-                        last_modified=datetime.fromtimestamp(file_mtime, timezone.utc) if file_mtime else None
-                    ))
-                    indexed_items.append({
-                        "id": f"{user_id}_{file_path}",
-                        "user_id": user_id,
-                        "filename": file,
-                        "filepath": file_path,
-                        "is_folder": False,
-                        "filesize": file_size,
-                        "last_modified": file_mtime
-                    })
-
-            # ✅ Commit new entries to DB
-            if new_entries:
-                session.bulk_save_objects(new_entries)
-                session.commit()
-                print(f"✅ Indexed {len(new_entries)} new files")
-
-            # ✅ Index in Elasticsearch
-            if indexed_items and es:
-                helpers.bulk(es, [{"_index": "file_index", "_id": item["id"], "_source": item} for item in indexed_items])
-                print(f"✅ Added {len(indexed_items)} new items to Elasticsearch")
-
-        except Exception as e:
-            logging.error(f"❌ Error during indexing new files: {str(e)}")
-            session.rollback()
-
-        finally:
-            session.close()
+        db.session.remove()  # ✅ Prevent memory leaks
 
 def get_dropbox_access_token(account_id):
     """Fetch the access token for a specific Dropbox account."""
@@ -314,10 +315,13 @@ def sync_dropbox(account_id, user_id):
         session = scoped_session(sessionmaker(bind=db.engine))
 
         try:
+            update_progress(user_id, "dropbox", account_id, "fetching", 0, None)
             files = fetch_dropbox_files(dbx)
+            total_files = len(files)
+            update_progress(user_id, "dropbox", account_id, "indexing", 0, total_files)
             update_count = 0
 
-            for file in files:
+            for idx, file in enumerate(files):
                 file_path = file.path_display
                 last_modified = file.server_modified
 
@@ -348,12 +352,17 @@ def sync_dropbox(account_id, user_id):
 
                 session.execute(stmt)
                 update_count += 1
+                
+                if idx > 0 and idx % 50 == 0:
+                    update_progress(user_id, "dropbox", account_id, "indexing", idx, total_files)
 
             session.commit()
+            update_progress(user_id, "dropbox", account_id, "completed", total_files, total_files)
             logging.info(f"✅ Synced {update_count} files (new + updated) from Dropbox (Account {account_id}) for user {user_id}")
 
         except Exception as e:
             session.rollback()
+            update_progress(user_id, "dropbox", account_id, "error", 0, None)
             logging.error(f"Error syncing Dropbox (Account {account_id}): {str(e)}")
 
         finally:
@@ -627,6 +636,7 @@ def sync_google_drive(account_id, user_id):
         service = build("drive", "v3", credentials=creds)
 
         try:
+            update_progress(user_id, "google_drive", account_id, "fetching", 0, None)
             files = []
             page_token = None
 
@@ -637,22 +647,27 @@ def sync_google_drive(account_id, user_id):
                     pageSize=100,  # Fetch in batches of 100
                     pageToken=page_token
                 ).execute()
-                files.extend(response.get("files", []))
+                batch_files = response.get("files", [])
+                files.extend(batch_files)
+                update_progress(user_id, "google_drive", account_id, "fetching", len(files), None)
+                
                 page_token = response.get("nextPageToken")
                 if not page_token:
                     break
 
             new_entries = []
             update_count = 0
+            total_files = len(files)
+            
+            update_progress(user_id, "google_drive", account_id, "indexing", 0, total_files)
 
-            for file in files:
+            for idx, file in enumerate(files):
                 file_id = file["id"]
                 last_modified = datetime.strptime(file["modifiedTime"], "%Y-%m-%dT%H:%M:%S.%fZ")
                 mime_type = file["mimeType"]
 
                 # Use the worker function to get the simplified file type
                 file_type = get_file_type_from_mime(mime_type)
-                print(f"File Type: {file_type}")  # Debugging log
 
                 # Prepare the insert statement with ON CONFLICT handling
                 stmt = insert(IndexedFile).values(
@@ -679,12 +694,18 @@ def sync_google_drive(account_id, user_id):
                 
                 session.execute(stmt)
                 update_count += 1
+                
+                # Update progress every 50 files
+                if idx > 0 and idx % 50 == 0:
+                    update_progress(user_id, "google_drive", account_id, "indexing", idx, total_files)
 
             session.commit()
+            update_progress(user_id, "google_drive", account_id, "completed", total_files, total_files)
             logging.info(f"✅ Synced {update_count} files (new + updated) from Google Drive (Account {account_id}) for user {user_id}")
 
         except Exception as e:
             session.rollback()
+            update_progress(user_id, "google_drive", account_id, "error", 0, None)
             logging.error(f"Error syncing Google Drive (Account {account_id}): {str(e)}")
 
         finally:
@@ -780,6 +801,7 @@ def sync_google_photos(account_id, user_id):
 
 
         try:
+            update_progress(user_id, "google_photos", account_id, "fetching", 0, None)
             media_items = []
             next_page_token = None
 
@@ -790,11 +812,16 @@ def sync_google_photos(account_id, user_id):
                 ).execute()
 
                 media_items.extend(response.get("mediaItems", []))
+                update_progress(user_id, "google_photos", account_id, "fetching", len(media_items), None)
+                
                 next_page_token = response.get("nextPageToken")
                 if not next_page_token:
                     break
 
-            for item in media_items:
+            total_items = len(media_items)
+            update_progress(user_id, "google_photos", account_id, "indexing", 0, total_items)
+
+            for idx, item in enumerate(media_items):
                 filename = item.get("filename")
                 mime_type = item.get("mimeType", "image/jpeg")
                 photo_id = item.get("id")
@@ -809,19 +836,24 @@ def sync_google_photos(account_id, user_id):
                     filetype=filetype,
                     cloud_file_id=photo_id,
                     mime_type=mime_type,
-                    last_modified=datetime.utcnow()
+                    last_modified=datetime.now(timezone.utc)
                 ).on_conflict_do_update(
                     index_elements=["filepath"],
-                    set_={"last_modified": datetime.utcnow()}
+                    set_={"last_modified": datetime.now(timezone.utc)}
                 )
 
-                db.session.execute(stmt)
+                session.execute(stmt)
+                
+                if idx > 0 and idx % 20 == 0:
+                    update_progress(user_id, "google_photos", account_id, "indexing", idx, total_items)
 
-            db.session.commit()
+            session.commit()
+            update_progress(user_id, "google_photos", account_id, "completed", total_items, total_items)
             logging.info(f"✅ Synced Google Photos for user {user_id}")
 
         except Exception as e:
             session.rollback()
+            update_progress(user_id, "google_photos", account_id, "error", 0, None)
             logging.error(f"Error syncing Google Photos: {str(e)}")
         
         finally:
@@ -1459,64 +1491,63 @@ def open_file():
 @search_bp.route("/sync-cloud-storage", methods=["POST"])
 @jwt_required()
 def sync_google_drive_account():
-    """Sync a specific Google Drive account for the user."""
+    """Sync a specific Google Drive account for the user in the background."""
     user_id = get_jwt_identity()
     data = request.json
     account_id = data.get("account_id")
-
 
     if not account_id:
         return jsonify({"error": "Account ID is required"}), 400
 
     try:
-        sync_google_drive(account_id, user_id)
-        print("synced gdrive");
+        executor.submit(sync_google_drive, account_id, user_id)
         return jsonify({"message": f"Google Drive sync started for account {account_id}"}), 200
     except Exception as e:
-        logging.error(f"Error syncing Google Drive (Account {account_id}): {str(e)}")
-        return jsonify({"error": "Failed to sync Google Drive"}), 500
-    
+        logging.error(f"Error starting Google Drive sync (Account {account_id}): {str(e)}")
+        return jsonify({"error": "Failed to start Google Drive sync"}), 500
+
 @search_bp.route("/gmail/sync", methods=["POST"])
 @jwt_required()
 def sync_gmail():
-    """Sync a specific Google Drive account for the user."""
+    """Sync Gmail attachments for the user in the background."""
     user_id = get_jwt_identity()
     data = request.json
     account_id = data.get("account_id")
-
 
     if not account_id:
         return jsonify({"error": "Account ID is required"}), 400
 
     try:
-
-        sync_gmail_attachments(account_id,user_id)
-        print("sync gmail")
-        return jsonify({"message": f"Google Drive sync started for account {account_id}"}), 200
+        executor.submit(sync_gmail_attachments, account_id, user_id)
+        return jsonify({"message": f"Gmail sync started for account {account_id}"}), 200
     except Exception as e:
-        logging.error(f"Error syncing Google Drive (Account {account_id}): {str(e)}")
-        return jsonify({"error": "Failed to sync Google Drive"}), 500
+        logging.error(f"Error starting Gmail sync (Account {account_id}): {str(e)}")
+        return jsonify({"error": "Failed to start Gmail sync"}), 500
 
 @search_bp.route("/photos/sync", methods=["POST"])
 @jwt_required()
 def sync_gphotos():
-    """Sync a specific Google Drive account for the user."""
+    """Sync Google Photos for the user."""
     user_id = get_jwt_identity()
     data = request.json
     account_id = data.get("account_id")
-
 
     if not account_id:
         return jsonify({"error": "Account ID is required"}), 400
 
     try:
-
-        sync_google_photos(account_id,user_id)
-        print("synced google photos")
-        return jsonify({"message": f"Google Drive sync started for account {account_id}"}), 200
+        executor.submit(sync_google_photos, account_id, user_id)
+        return jsonify({"message": f"Google Photos sync started for account {account_id}"}), 200
     except Exception as e:
-        logging.error(f"Error syncing Google Drive (Account {account_id}): {str(e)}")
-        return jsonify({"error": "Failed to sync Google Drive"}), 500
+        logging.error(f"Error starting Google Photos sync (Account {account_id}): {str(e)}")
+        return jsonify({"error": "Failed to start Google Photos sync"}), 500
+
+@search_bp.route("/indexing-progress", methods=["GET"])
+@jwt_required()
+def get_indexing_progress():
+    """Return the real-time indexing progress for the authenticated user."""
+    user_id = str(get_jwt_identity())
+    return jsonify(indexing_status.get(user_id, {})), 200
 
 def check_elasticsearch():
     """Check if Elasticsearch is reachable."""
@@ -1537,11 +1568,11 @@ def sync_dropbox_account():
         return jsonify({"error": "Account ID is required"}), 400
 
     try:
-        sync_dropbox(account_id, user_id)
+        executor.submit(sync_dropbox, account_id, user_id)
         return jsonify({"message": f"Dropbox sync started for account {account_id}"}), 200
     except Exception as e:
-        logging.error(f"Error syncing Dropbox (Account {account_id}): {str(e)}")
-        return jsonify({"error": "Failed to sync Dropbox"}), 500
+        logging.error(f"Error starting Dropbox sync (Account {account_id}): {str(e)}")
+        return jsonify({"error": "Failed to start Dropbox sync"}), 500
 
 @search_bp.route("/download-file", methods=["GET"])
 @jwt_required()
