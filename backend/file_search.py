@@ -17,7 +17,23 @@ from werkzeug.utils import secure_filename
 
 # Elasticsearch Setup
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
-es = Elasticsearch([ELASTICSEARCH_URL])
+parsed_url = urllib.parse.urlparse(ELASTICSEARCH_URL)
+
+if parsed_url.username and parsed_url.password:
+    # Use basic auth for Bonsai or similar authenticated ES clusters
+    es_host = f"{parsed_url.scheme}://{parsed_url.hostname}"
+    if parsed_url.port:
+        es_host += f":{parsed_url.port}"
+    
+    es = Elasticsearch(
+        [es_host],
+        basic_auth=(parsed_url.username, parsed_url.password),
+        verify_certs=True
+    )
+    logging.info(f"Connected to authenticated Elasticsearch at {es_host}")
+else:
+    es = Elasticsearch([ELASTICSEARCH_URL])
+    logging.info(f"Connected to Elasticsearch at {ELASTICSEARCH_URL}")
 
 DROPBOX_CLIENT_ID = os.getenv("DROPBOX_CLIENT_ID")
 DROPBOX_CLIENT_SECRET = os.getenv("DROPBOX_CLIENT_SECRET")
@@ -1146,7 +1162,8 @@ def search_files():
         try:
             from models import SearchHistory
             # Check if this query was recently added (last 1 minute) to avoid duplicates from re-renders
-            recent_exists = SearchHistory.query.filter_by(user_id=user_id, query=query).order_by(SearchHistory.timestamp.desc()).first()
+            # Use db.session.query() because SearchHistory.query is shadowed by the 'query' column
+            recent_exists = db.session.query(SearchHistory).filter_by(user_id=user_id, query=query).order_by(SearchHistory.timestamp.desc()).first()
             
             should_add = True
             if recent_exists:
@@ -1871,7 +1888,8 @@ def get_recent_searches():
     try:
         from models import SearchHistory
         # Get last 50 queries, then deduplicate in python
-        history = SearchHistory.query.filter_by(user_id=user_id).order_by(SearchHistory.timestamp.desc()).limit(50).all()
+        # Use db.session.query() because SearchHistory.query is shadowed by the 'query' column
+        history = db.session.query(SearchHistory).filter_by(user_id=user_id).order_by(SearchHistory.timestamp.desc()).limit(50).all()
         
         seen = set()
         unique_queries = []

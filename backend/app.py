@@ -35,9 +35,13 @@ app.config["JWT_ACCESS_COOKIE_NAME"] = "access_token_cookie"
 app.config["JWT_COOKIE_SECURE"] = os.getenv("FLASK_ENV", "development") == "production"
 app.config["JWT_COOKIE_CSRF_PROTECT"] = False
 
-# ── Session Cookie Settings ───────────────────────────────────────────────────
-app.config["SESSION_COOKIE_SAMESITE"] = "None"
-app.config["SESSION_COOKIE_SECURE"] = True
+# ── Session & OAuth Settings ──────────────────────────────────────────────────
+# If testing locally on HTTP, allow insecure transport for Authlib/OAuth
+if os.getenv("FLASK_ENV", "development") != "production":
+    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax" # Better default for most OAuth flows
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("FLASK_ENV", "development") == "production"
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 _allowed_origins = [
