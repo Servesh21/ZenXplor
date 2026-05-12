@@ -19,18 +19,14 @@ from werkzeug.utils import secure_filename
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 parsed_url = urllib.parse.urlparse(ELASTICSEARCH_URL)
 
-if parsed_url.username and parsed_url.password:
-    # Use http_auth for Bonsai/OpenSearch clusters (required for v7 client)
-    es_host = f"{parsed_url.scheme}://{parsed_url.hostname}"
-    if parsed_url.port:
-        es_host += f":{parsed_url.port}"
-    
+if "bonsaisearch.net" in ELASTICSEARCH_URL or parsed_url.username:
+    # Authenticated cluster (Bonsai/OpenSearch)
     es = Elasticsearch(
-        [es_host],
-        http_auth=(parsed_url.username, parsed_url.password),
+        [ELASTICSEARCH_URL],
+        use_ssl=True,
         verify_certs=True
     )
-    logging.info(f"Connected to authenticated search cluster at {es_host}")
+    logging.info(f"Connected to authenticated search cluster")
 else:
     es = Elasticsearch([ELASTICSEARCH_URL])
     logging.info(f"Connected to search cluster at {ELASTICSEARCH_URL}")
