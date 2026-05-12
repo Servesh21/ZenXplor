@@ -121,21 +121,16 @@ def create_es_index():
 
 def initialize_app():
     print("🚀 Initializing application...")
-
-    # Ensure tables are created
-    try:
-        db.create_all()
-        print("✅ Database tables created (if they didn't exist)")
-    except Exception as e:
-        print("❌ DB creation error:", e)
-
-    # Run DB migrations
+ 
     try:
         upgrade()
-        print("✅ Database migrated")
+        print("✅ Database migrated successfully")
     except Exception as e:
-        print("❌ Migration error:", e)
-
+        # Log but don't crash — tables may already be up to date
+        print(f"❌ Migration error: {e}")
+        print("   If this is a fresh deploy, run: flask db stamp head")
+        print("   Then redeploy to clear this error.")
+ 
     # Create Elasticsearch index
     create_es_index()
 
