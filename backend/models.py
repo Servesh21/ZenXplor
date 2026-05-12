@@ -143,3 +143,21 @@ class SearchHistory(db.Model):
             "query": self.query,
             "timestamp": self.timestamp.isoformat()
         }
+
+
+class IndexingProgress(db.Model):
+    """Stores sync progress in the DB so all Gunicorn workers share state."""
+    __tablename__ = "indexing_progress"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    source = db.Column(db.String(50), nullable=False)       # e.g. "local", "google_drive"
+    account_id = db.Column(db.String(50), nullable=False)   # e.g. "1" or "default"
+    status = db.Column(db.String(50), nullable=False)       # "fetching", "indexing", "completed", "error"
+    processed = db.Column(db.Integer, default=0)
+    total = db.Column(db.Integer, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'source', 'account_id', name='uq_indexing_progress'),
+    )

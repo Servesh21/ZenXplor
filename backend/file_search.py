@@ -37,7 +37,6 @@ search_bp = Blueprint("search", __name__)
 CORS(search_bp, supports_credentials=True, origins=["http://localhost:5173"])
 
 logging.basicConfig(level=logging.INFO)
-indexing_status = {}
 from concurrent.futures import ThreadPoolExecutor
 executor = ThreadPoolExecutor(max_workers=5)
 
@@ -48,21 +47,35 @@ AUTO_SYNC_INTERVAL=30
 EXCLUDE_DIRS = {"AppData","node_modules", ".git", ".Trash", "System Volume Information",".venv",".gradle", "Library", ".cache", ".config", ".idea", ".vscode"}
 EXCLUDE_FILES = {".DS_Store", "thumbs.db"}
 
-indexing_status = {}
+# Duplicate declaration removed — in-memory dict replaced with DB model.
 
 def update_progress(user_id, source, account_id, status, processed, total=None):
-    user_id_str = str(user_id)
-    if user_id_str not in indexing_status:
-        indexing_status[user_id_str] = {}
-    if source not in indexing_status[user_id_str]:
-        indexing_status[user_id_str][source] = {}
-    
-    current = indexing_status[user_id_str][source].get(str(account_id), {})
-    indexing_status[user_id_str][source][str(account_id)] = {
-        "status": status,
-        "processed": processed,
-        "total": total if total is not None else current.get("total")
-    }
+    """Persist indexing progress to the database so all Gunicorn workers share state."""
+    from models import IndexingProgress
+    try:
+        row = db.session.query(IndexingProgress).filter_by(
+            user_id=int(user_id), source=source, account_id=str(account_id)
+        ).first()
+        if row:
+            row.status = status
+            row.processed = processed
+            if total is not None:
+                row.total = total
+            row.updated_at = datetime.utcnow()
+        else:
+            row = IndexingProgress(
+                user_id=int(user_id),
+                source=source,
+                account_id=str(account_id),
+                status=status,
+                processed=processed,
+                total=total
+            )
+            db.session.add(row)
+        db.session.commit()
+    except Exception as exc:
+        logging.warning("update_progress DB error: %s", exc)
+        db.session.rollback()
 
 auto_sync_started = False  # Global flag
 
@@ -1558,9 +1571,22 @@ def sync_gphotos():
 @search_bp.route("/indexing-progress", methods=["GET"])
 @jwt_required()
 def get_indexing_progress():
-    """Return the real-time indexing progress for the authenticated user."""
-    user_id = str(get_jwt_identity())
-    return jsonify(indexing_status.get(user_id, {})), 200
+    """Return the real-time indexing progress for the authenticated user from the DB."""
+    from models import IndexingProgress
+    user_id = int(get_jwt_identity())
+    rows = db.session.query(IndexingProgress).filter_by(user_id=user_id).all()
+    
+    result = {}
+    for row in rows:
+        if row.source not in result:
+            result[row.source] = {}
+        result[row.source][row.account_id] = {
+            "status": row.status,
+            "processed": row.processed,
+            "total": row.total
+        }
+    
+    return jsonify(result), 200
 
 def check_elasticsearch():
     """Check if Elasticsearch is reachable."""
