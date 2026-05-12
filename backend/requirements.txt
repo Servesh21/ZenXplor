@@ -11,8 +11,7 @@ click==8.1.8
 colorama==0.4.6
 cryptography==44.0.2
 dropbox==12.0.2
-elastic-transport==8.17.0
-elasticsearch==8.17.2
+elasticsearch==7.13.4
 Flask==3.1.0
 Flask-Cors==5.0.0
 Flask-JWT-Extended==4.7.1
