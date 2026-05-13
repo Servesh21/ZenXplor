@@ -214,7 +214,7 @@ def download_file() -> Any:
     return send_from_directory(
         os.path.dirname(safe_path),
         os.path.basename(safe_path),
-        as_attachment=True,
+        as_attachment=False,  # inline so browser can display in iframe/viewer
     )
 
 @app.route("/preview", methods=["GET"])
@@ -232,14 +232,24 @@ def preview_file() -> Any:
     if not os.path.isfile(safe_path):
         return jsonify({"error": "Not a file"}), 400
 
-    # Serve the file directly if it is an image, otherwise return 415
-    ext = os.path.splitext(safe_path)[1].lower()
+    # Serve images inline
     if ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]:
         return send_from_directory(
             os.path.dirname(safe_path),
             os.path.basename(safe_path),
             as_attachment=False,
         )
+
+    # Serve PDFs inline so the browser can render them in an iframe
+    if ext == ".pdf":
+        from flask import Response
+        import mimetypes
+        with open(safe_path, "rb") as f:
+            data = f.read()
+        response = Response(data, mimetype="application/pdf")
+        response.headers["Content-Disposition"] = "inline; filename=" + os.path.basename(safe_path)
+        return response
+
     return jsonify({"error": "Preview not supported for this file type"}), 415
 
 

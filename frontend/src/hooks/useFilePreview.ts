@@ -95,14 +95,15 @@ async function buildLocalPreview(file: SearchResult, agentRunning: boolean): Pro
     }
   }
 
-  // PDF preview: use agent as a direct stream in iframe
+  // PDF preview: use agent /preview endpoint which serves inline (not as attachment)
   if (ext === "pdf") {
-    const url = `${AGENT_URL}/download?filepath=${encodeURIComponent(file.filepath)}`;
+    const previewUrl = `${AGENT_URL}/preview?filepath=${encodeURIComponent(file.filepath)}`;
+    const downloadUrl = `${AGENT_URL}/download?filepath=${encodeURIComponent(file.filepath)}`;
     return {
       ...base,
       preview_type: "pdf",
-      viewer_url: url,
-      download_url: url,
+      viewer_url: previewUrl,
+      download_url: downloadUrl,
     };
   }
 

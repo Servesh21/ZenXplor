@@ -219,9 +219,8 @@ const FilePreviewPanel: React.FC<FilePreviewPanelProps> = ({
                         src={previewData.viewer_url}
                         title="PDF preview"
                         width="100%"
-                        height="400"
-                        style={{ border: "none", borderRadius: 8 }}
-                        sandbox="allow-scripts allow-same-origin allow-popups"
+                        height="460"
+                        style={{ border: "none", borderRadius: 8, display: "block" }}
                       />
                       {previewData.download_url && (
                         <button
