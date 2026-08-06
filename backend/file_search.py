@@ -89,6 +89,11 @@ def start_auto_sync_threads(app):
     """Start background scheduler for auto-syncing local storage, Google Drive, and Dropbox."""
     global scheduler
 
+    enable_auto_sync = app.config.get("ENABLE_AUTO_SYNC", False) if app else os.getenv("ENABLE_AUTO_SYNC", "false").lower() in ("true", "1", "yes")
+    if not enable_auto_sync:
+        print("ℹ️ Auto-sync background scheduler is disabled (ENABLE_AUTO_SYNC is false).")
+        return
+
     if scheduler.running:
         print("🔄 Scheduler already running...")
         return

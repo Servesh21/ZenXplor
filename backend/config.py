@@ -17,6 +17,10 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SESSION_TYPE = "filesystem"
 
+    # ── Auto Sync Configuration ───────────────────────────────────────────────
+    # Set ENABLE_AUTO_SYNC=true in environment to enable background auto-sync
+    ENABLE_AUTO_SYNC = os.getenv("ENABLE_AUTO_SYNC", "false").lower() in ("true", "1", "yes")
+
     # ── Connection pool tuning for Render free tier (512 MB RAM) ───────────
     # Render's free PostgreSQL allows ~97 connections; keep pool small.
     SQLALCHEMY_ENGINE_OPTIONS = {
@@ -26,3 +30,4 @@ class Config:
         "pool_recycle": 1800,     # recycle connections every 30 min
         "pool_pre_ping": True,    # verify connection health before use
     }
+
